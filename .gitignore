@@ -1,0 +1,13 @@
+node_modules/
+dist/
+coverage/
+.fable/
+*.db
+*.db-shm
+*.db-wal
+*.log
+.DS_Store
+src-tauri/target/
+src-tauri/binaries/*
+!src-tauri/binaries/.gitkeep
+
