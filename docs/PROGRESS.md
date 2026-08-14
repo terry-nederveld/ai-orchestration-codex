@@ -11,11 +11,14 @@ Deliver the first complete, testable issue-to-code vertical slice, then widen pr
 - Read the product requirements and verified the workspace is greenfield.
 - Researched current authoritative material for Symphony, Pi, Codex, Claude, Copilot, GitHub, Jira Cloud, Jira Data Center, Linear, MCP, Tauri, Electron, and SQLite.
 - Chose the initial stack, process model, provider contracts, workflow semantics, persistence approach, extension boundary, and security boundary.
+- Established the strict TypeScript workspace with formatting, linting, build, test, and ADR validation gates.
+- Implemented provider-neutral domain contracts, explicit run transitions, capability routing, budgets, permissions, hooks, tools, layered configuration, structured eventing, optimistic entity storage, durable claims, SQLite migrations, and deterministic fake providers.
+- Added reusable model, work, and persistence contract test suites.
 
 ## Active work
 
-- Establish the TypeScript workspace and architecture records.
-- Implement domain contracts, eventing, persistence, budget/policy enforcement, deterministic providers, and contract tests.
+- Implement the declarative workflow compiler/executor and native agent loop.
+- Add workspace, Git, process, and filesystem tool adapters for the first autonomous vertical slice.
 
 ## Known constraints
 
@@ -29,9 +32,9 @@ Deliver the first complete, testable issue-to-code vertical slice, then widen pr
 
 ## Test status
 
-- Not yet runnable; project foundation in progress.
+- 10 test files and 13 tests pass.
+- Formatting, linting, strict typechecking, core compilation, SQLite migration startup, persistence contract tests, and all 8 ADR validations pass.
 
 ## Deferred items
 
 - None. Items that cannot be validated locally will be covered by target-specific CI or explicitly documented only after implementation.
-
