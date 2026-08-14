@@ -5,7 +5,11 @@ import type { ProviderDescriptor } from "../../domain/providers.js";
 import type { ProcessRunner } from "../../ports/process.js";
 import type { Workspace, WorkspaceProvider, WorkspaceRequest } from "../../ports/workspace.js";
 import { workspace } from "./temporary-workspace.js";
-import { prepareWorkspaceRoot, workspaceDestination } from "./workspace-utils.js";
+import {
+  assertManagedWorkspacePath,
+  prepareWorkspaceRoot,
+  workspaceDestination,
+} from "./workspace-utils.js";
 
 export class CloneWorkspaceProvider implements WorkspaceProvider {
   public readonly descriptor: ProviderDescriptor & { kind: "workspace" } = {
@@ -50,7 +54,11 @@ export class CloneWorkspaceProvider implements WorkspaceProvider {
     const root = await prepareWorkspaceRoot(request.basePath ?? this.defaultRoot);
     const destination = workspaceDestination(root, request.runId);
     if (await exists(join(destination, ".git"))) {
-      return workspace(request, destination, "clone", { reused: true, repository: url });
+      return workspace(request, destination, "clone", {
+        reused: true,
+        repository: url,
+        workspaceRoot: root,
+      });
     }
     if (await exists(destination))
       throw new Error(`Workspace destination already exists: ${destination}`);
@@ -59,13 +67,20 @@ export class CloneWorkspaceProvider implements WorkspaceProvider {
       signal,
     );
     if (result.exitCode !== 0) throw new Error(`Git clone failed: ${result.stderr}`);
-    return workspace(request, destination, "clone", { reused: false, repository: url });
+    return workspace(request, destination, "clone", {
+      reused: false,
+      repository: url,
+      workspaceRoot: root,
+    });
   }
 
   public async remove(workspaceValue: Workspace): Promise<void> {
     if (workspaceValue.strategy !== "clone") {
       throw new Error(`Refusing to remove non-clone workspace: ${workspaceValue.path}`);
     }
+    const root = workspaceValue.metadata["workspaceRoot"];
+    if (typeof root !== "string") throw new Error("Clone workspace metadata is missing its root");
+    await assertManagedWorkspacePath(root, workspaceValue.path);
     await rm(workspaceValue.path, { recursive: true, force: true, maxRetries: 3 });
   }
 }

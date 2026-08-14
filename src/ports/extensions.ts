@@ -27,6 +27,24 @@ export interface ExtensionContribution {
   hooks?: HookRegistration[];
 }
 
+export interface SkillMetadata {
+  id: string;
+  name: string;
+  description: string;
+  path: string;
+  tags?: string[];
+  metadata?: JsonObject;
+}
+
+export interface SkillDocument extends SkillMetadata {
+  content: string;
+}
+
+export interface SkillProvider {
+  discover(paths: string[]): Promise<SkillMetadata[]>;
+  load(id: string): Promise<SkillDocument>;
+}
+
 export interface ExtensionProvider extends Provider {
   readonly descriptor: Provider["descriptor"] & { kind: "extension" };
   discover(paths: string[]): Promise<ExtensionManifest[]>;

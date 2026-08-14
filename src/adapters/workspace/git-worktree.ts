@@ -5,7 +5,11 @@ import type { ProviderDescriptor } from "../../domain/providers.js";
 import type { ProcessRunner } from "../../ports/process.js";
 import type { Workspace, WorkspaceProvider, WorkspaceRequest } from "../../ports/workspace.js";
 import { workspace } from "./temporary-workspace.js";
-import { prepareWorkspaceRoot, workspaceDestination } from "./workspace-utils.js";
+import {
+  assertManagedWorkspacePath,
+  prepareWorkspaceRoot,
+  workspaceDestination,
+} from "./workspace-utils.js";
 
 export class GitWorktreeWorkspaceProvider implements WorkspaceProvider {
   public readonly descriptor: ProviderDescriptor & { kind: "workspace" } = {
@@ -57,6 +61,7 @@ export class GitWorktreeWorkspaceProvider implements WorkspaceProvider {
       return workspace({ ...request, branchName: branch }, destination, "git-worktree", {
         reused: true,
         repository,
+        workspaceRoot: root,
       });
     }
     if (await exists(destination))
@@ -82,6 +87,7 @@ export class GitWorktreeWorkspaceProvider implements WorkspaceProvider {
     return workspace({ ...request, branchName: branch }, destination, "git-worktree", {
       reused: false,
       repository,
+      workspaceRoot: root,
     });
   }
 
@@ -92,6 +98,9 @@ export class GitWorktreeWorkspaceProvider implements WorkspaceProvider {
     const repository = workspaceValue.metadata["repository"];
     if (typeof repository !== "string")
       throw new Error("Worktree metadata is missing repository path");
+    const root = workspaceValue.metadata["workspaceRoot"];
+    if (typeof root !== "string") throw new Error("Worktree metadata is missing its root");
+    await assertManagedWorkspacePath(root, workspaceValue.path);
     const result = await this.runner.run(
       {
         command: "git",

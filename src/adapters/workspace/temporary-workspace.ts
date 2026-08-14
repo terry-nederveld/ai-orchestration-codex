@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import type { JsonObject } from "../../domain/json.js";
 import type { ProviderDescriptor } from "../../domain/providers.js";
 import type { Workspace, WorkspaceProvider, WorkspaceRequest } from "../../ports/workspace.js";
-import { prepareWorkspaceRoot } from "./workspace-utils.js";
+import { assertManagedWorkspacePath, prepareWorkspaceRoot } from "./workspace-utils.js";
 
 export class TemporaryWorkspaceProvider implements WorkspaceProvider {
   public readonly descriptor: ProviderDescriptor & { kind: "workspace" } = {
@@ -25,13 +25,17 @@ export class TemporaryWorkspaceProvider implements WorkspaceProvider {
   public async create(request: WorkspaceRequest): Promise<Workspace> {
     const root = await prepareWorkspaceRoot(request.basePath ?? this.defaultRoot);
     const path = await mkdtemp(join(root, "temporary-"));
-    return workspace(request, path, "temporary", {});
+    return workspace(request, path, "temporary", { workspaceRoot: root });
   }
 
   public async remove(workspaceValue: Workspace): Promise<void> {
     if (workspaceValue.strategy !== "temporary") {
       throw new Error(`Refusing to remove non-temporary workspace: ${workspaceValue.path}`);
     }
+    const root = workspaceValue.metadata["workspaceRoot"];
+    if (typeof root !== "string")
+      throw new Error("Temporary workspace metadata is missing its root");
+    await assertManagedWorkspacePath(root, workspaceValue.path);
     await rm(workspaceValue.path, { recursive: true, force: true, maxRetries: 3 });
   }
 }

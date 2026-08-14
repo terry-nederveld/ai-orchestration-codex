@@ -18,11 +18,15 @@ Deliver the first complete, testable issue-to-code vertical slice, then widen pr
 - Implemented the native goal-oriented agent loop with streaming events, parallel tool calls, provider retries, explicit terminal outcomes, context compaction, resumable sessions, usage accounting, and budget enforcement.
 - Added shell-free bounded process execution, workspace-scoped filesystem/process/search tools, traversal and symlink protection, local/temporary/clone/Git-worktree isolation, Git/GitHub source control, Conventional Commit enforcement, and delivery actions.
 - Completed a deterministic end-to-end issue-to-isolated-worktree flow that edits, tests, independently reviews, commits, records events, transitions the work item, releases its claim, and cleans up.
+- Added streaming direct-model adapters for OpenAI Responses, Anthropic Messages, OpenRouter, and local OpenAI-compatible endpoints, with secret references, abort propagation, usage normalization, tool-call normalization, and retry classification.
+- Added supported coding-agent adapters for Codex SDK/ChatGPT sessions, Claude Code CLI account sessions, and GitHub Copilot SDK sessions, including discovery, resume, cancellation, streaming, policy mediation, and plan/API consumption accounting.
+- Added normalized GitHub Issues, Jira Cloud v3, Jira Data Center v2, and Linear GraphQL work adapters with fixture-backed discovery, pagination, updates, transitions, comments, labels, assignees, and repository references.
+- Implemented validated/grant-gated extension manifests, lazy filesystem skill indexing, namespaced MCP tools over stdio or Streamable HTTP, composite secret lookup, authenticated encrypted-file secret storage, and containment-verified workspace cleanup.
 
 ## Active work
 
-- Implement direct model and coding-agent adapters plus GitHub, Jira Cloud, Jira Data Center, and Linear work providers.
-- Implement extension discovery, MCP, skills, hooks, and secure headless credential storage.
+- Build the CLI composition root and local control-plane service.
+- Build the Tauri desktop shell and operator experience on the same control-plane API.
 
 ## Known constraints
 
@@ -32,11 +36,11 @@ Deliver the first complete, testable issue-to-code vertical slice, then widen pr
 
 ## Remaining requirements
 
-- Core orchestration, workflow, native agent runtime, workspace isolation, SCM, providers, extensions, MCP, skills, hooks, CLI, control plane, desktop UI, packaging, security review, documentation, and complete validation.
+- CLI, control plane, desktop UI, packaging, reliability hardening, security review, operator/developer documentation, and complete validation.
 
 ## Test status
 
-- 20 test files and 33 tests pass, including the end-to-end autonomous issue-to-code workflow.
+- 24 test files and 48 tests pass, including the end-to-end autonomous issue-to-code workflow and provider/extension/MCP/security contract fixtures.
 - Formatting, linting, strict typechecking, core compilation, SQLite migration startup, provider/persistence contracts, security-sensitive tool tests, workflow/agent tests, and all 8 ADR validations pass.
 
 ## Deferred items
