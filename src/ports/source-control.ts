@@ -34,6 +34,8 @@ export interface SourceControlProvider extends Provider {
   fetch(repositoryPath: string, signal?: AbortSignal): Promise<CommandResult>;
   status(repositoryPath: string, signal?: AbortSignal): Promise<CommandResult>;
   diff(repositoryPath: string, signal?: AbortSignal): Promise<CommandResult>;
+  stage(repositoryPath: string, paths?: string[], signal?: AbortSignal): Promise<CommandResult>;
+  currentBranch(repositoryPath: string, signal?: AbortSignal): Promise<string>;
   commit(repositoryPath: string, message: string, signal?: AbortSignal): Promise<CommandResult>;
   push(
     repositoryPath: string,

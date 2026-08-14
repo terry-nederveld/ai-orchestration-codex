@@ -18,7 +18,7 @@ export interface ToolDefinition {
   name: string;
   description: string;
   inputSchema: JsonObject;
-  permissions: PermissionCapability[];
+  permissions: readonly PermissionCapability[];
   execute(input: JsonObject, context: ToolContext): Promise<ToolResult>;
 }
 

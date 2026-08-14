@@ -1,0 +1,218 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://fable.local/schemas/workflow.schema.json",
+  "title": "Fable workflow",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "id", "name", "steps"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "id": { "type": "string", "pattern": "^[a-z][a-z0-9_-]*$" },
+    "name": { "type": "string", "minLength": 1 },
+    "description": { "type": "string" },
+    "includes": {
+      "type": "array",
+      "items": { "type": "string" },
+      "default": []
+    },
+    "trigger": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "states": { "type": "array", "minItems": 1, "items": { "type": "string" } }
+      }
+    },
+    "eligibility": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "includeLabels": { "type": "array", "items": { "type": "string" } },
+        "excludeLabels": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "workspace": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "strategy": {
+          "enum": ["git-worktree", "clone", "local", "temporary"]
+        },
+        "retainOnFailure": { "type": "boolean" }
+      }
+    },
+    "variables": { "type": "object" },
+    "budgets": { "$ref": "#/$defs/budgets" },
+    "agents": {
+      "type": "object",
+      "additionalProperties": { "$ref": "#/$defs/agent" }
+    },
+    "steps": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/step" }
+    },
+    "transitions": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "success": { "type": "string" },
+        "failure": { "type": "string" },
+        "cancelled": { "type": "string" }
+      }
+    }
+  },
+  "$defs": {
+    "budgets": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "maxConcurrentAgents": { "type": "integer", "minimum": 1 },
+        "maxSubagentsPerRun": { "type": "integer", "minimum": 0 },
+        "maxIterations": { "type": "integer", "minimum": 1 },
+        "maxWallClockMs": { "type": "integer", "minimum": 1 },
+        "maxInputTokens": { "type": "integer", "minimum": 1 },
+        "maxOutputTokens": { "type": "integer", "minimum": 1 },
+        "maxEstimatedCostUsd": { "type": "number", "minimum": 0 },
+        "maxSubscriptionRequests": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "agent": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "provider": { "type": "string" },
+        "model": { "type": "string" },
+        "requiredCapabilities": {
+          "type": "array",
+          "items": {
+            "enum": [
+              "chat",
+              "reasoning",
+              "tool_use",
+              "parallel_tool_use",
+              "structured_output",
+              "vision",
+              "web_search",
+              "computer_use",
+              "code_execution",
+              "long_context",
+              "context_compaction",
+              "subagents",
+              "background_tasks",
+              "mcp",
+              "skills",
+              "hooks",
+              "streaming",
+              "resume_session"
+            ]
+          }
+        },
+        "instructions": { "type": "string" }
+      }
+    },
+    "retry": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "maxAttempts": { "type": "integer", "minimum": 1, "maximum": 20 },
+        "backoffMs": { "type": "integer", "minimum": 0 },
+        "maxBackoffMs": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "repeat": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["while", "maxIterations"],
+      "properties": {
+        "while": { "type": "string", "minLength": 1 },
+        "maxIterations": { "type": "integer", "minimum": 1, "maximum": 100 }
+      }
+    },
+    "commonStep": {
+      "type": "object",
+      "required": ["id", "type"],
+      "properties": {
+        "id": { "type": "string", "pattern": "^[a-z][a-z0-9_-]*$" },
+        "name": { "type": "string", "minLength": 1 },
+        "dependsOn": { "type": "array", "items": { "type": "string" } },
+        "when": { "type": "string", "minLength": 1 },
+        "timeoutMs": { "type": "integer", "minimum": 1 },
+        "retry": { "$ref": "#/$defs/retry" },
+        "repeat": { "$ref": "#/$defs/repeat" },
+        "onError": { "enum": ["fail", "continue"] }
+      }
+    },
+    "step": {
+      "oneOf": [
+        {
+          "allOf": [
+            { "$ref": "#/$defs/commonStep" },
+            {
+              "required": ["agent", "goal"],
+              "properties": {
+                "type": { "const": "agent" },
+                "agent": { "type": "string" },
+                "goal": { "type": "string", "minLength": 1 }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            { "$ref": "#/$defs/commonStep" },
+            {
+              "required": ["command"],
+              "properties": {
+                "type": { "const": "command" },
+                "command": { "type": "string", "minLength": 1 },
+                "args": { "type": "array", "items": { "type": "string" } },
+                "cwd": { "type": "string" },
+                "env": { "type": "object", "additionalProperties": { "type": "string" } },
+                "expectedExitCodes": { "type": "array", "items": { "type": "integer" } }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            { "$ref": "#/$defs/commonStep" },
+            {
+              "required": ["tool"],
+              "properties": {
+                "type": { "const": "tool" },
+                "tool": { "type": "string" },
+                "input": { "type": "object" }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            { "$ref": "#/$defs/commonStep" },
+            {
+              "required": ["action"],
+              "properties": {
+                "type": { "const": "action" },
+                "action": { "type": "string" },
+                "input": { "type": "object" }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            { "$ref": "#/$defs/commonStep" },
+            {
+              "required": ["title", "description"],
+              "properties": {
+                "type": { "const": "approval" },
+                "title": { "type": "string" },
+                "description": { "type": "string" }
+              }
+            }
+          ]
+        }
+      ]
+    }
+  }
+}

@@ -14,11 +14,15 @@ Deliver the first complete, testable issue-to-code vertical slice, then widen pr
 - Established the strict TypeScript workspace with formatting, linting, build, test, and ADR validation gates.
 - Implemented provider-neutral domain contracts, explicit run transitions, capability routing, budgets, permissions, hooks, tools, layered configuration, structured eventing, optimistic entity storage, durable claims, SQLite migrations, and deterministic fake providers.
 - Added reusable model, work, and persistence contract test suites.
+- Implemented the versioned YAML workflow compiler, dependency-graph executor, safe conditions/interpolation, retries, parallel steps, bounded repetition, approvals/actions, cancellation, and persisted execution snapshots.
+- Implemented the native goal-oriented agent loop with streaming events, parallel tool calls, provider retries, explicit terminal outcomes, context compaction, resumable sessions, usage accounting, and budget enforcement.
+- Added shell-free bounded process execution, workspace-scoped filesystem/process/search tools, traversal and symlink protection, local/temporary/clone/Git-worktree isolation, Git/GitHub source control, Conventional Commit enforcement, and delivery actions.
+- Completed a deterministic end-to-end issue-to-isolated-worktree flow that edits, tests, independently reviews, commits, records events, transitions the work item, releases its claim, and cleans up.
 
 ## Active work
 
-- Implement the declarative workflow compiler/executor and native agent loop.
-- Add workspace, Git, process, and filesystem tool adapters for the first autonomous vertical slice.
+- Implement direct model and coding-agent adapters plus GitHub, Jira Cloud, Jira Data Center, and Linear work providers.
+- Implement extension discovery, MCP, skills, hooks, and secure headless credential storage.
 
 ## Known constraints
 
@@ -32,8 +36,8 @@ Deliver the first complete, testable issue-to-code vertical slice, then widen pr
 
 ## Test status
 
-- 10 test files and 13 tests pass.
-- Formatting, linting, strict typechecking, core compilation, SQLite migration startup, persistence contract tests, and all 8 ADR validations pass.
+- 20 test files and 33 tests pass, including the end-to-end autonomous issue-to-code workflow.
+- Formatting, linting, strict typechecking, core compilation, SQLite migration startup, provider/persistence contracts, security-sensitive tool tests, workflow/agent tests, and all 8 ADR validations pass.
 
 ## Deferred items
 
