@@ -47,7 +47,7 @@ const agentSchema = z.discriminatedUnion("type", [
     type: z.literal("codex"),
     secret: secretReference.optional(),
     baseUrl: z.string().url().optional(),
-    executable: z.string().optional(),
+    executable: z.string().default("codex"),
     network: z.boolean().default(false),
   }),
   z.object({

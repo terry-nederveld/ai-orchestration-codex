@@ -1,5 +1,6 @@
 node_modules/
 dist/
+dist-ui/
 coverage/
 .fable/
 *.db
@@ -8,6 +9,13 @@ coverage/
 *.log
 .DS_Store
 src-tauri/target/
+src-tauri/.sidecar/
+src-tauri/gen/
 src-tauri/binaries/*
 !src-tauri/binaries/.gitkeep
-
+src-tauri/icons/64x64.png
+src-tauri/icons/icon.png
+src-tauri/icons/StoreLogo.png
+src-tauri/icons/Square*.png
+src-tauri/icons/android/
+src-tauri/icons/ios/
