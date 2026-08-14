@@ -1,6 +1,11 @@
 export { FableRuntime } from "./composition/runtime.js";
 export type { ProviderStatus, StartRunRequest } from "./composition/runtime.js";
-export { fableConfigSchema, loadFableConfig, resolveConfigPath } from "./composition/config.js";
+export {
+  fableConfigSchema,
+  loadFableConfig,
+  loadFableConfigLayers,
+  resolveConfigPath,
+} from "./composition/config.js";
 export type {
   AgentConfig,
   FableConfig,
@@ -30,6 +35,12 @@ export type { SecretProvider } from "./ports/security.js";
 export type { PersistenceProvider } from "./ports/persistence.js";
 export type { EventBus } from "./ports/event-bus.js";
 export type { ToolDefinition, ToolProvider } from "./ports/tools.js";
+export { ScriptedAgentProvider } from "./adapters/fakes/agent-provider.js";
+export { ScriptedModelProvider } from "./adapters/fakes/model-provider.js";
+export { InMemoryWorkProvider } from "./adapters/fakes/work-provider.js";
+export { InMemorySourceControlProvider } from "./adapters/fakes/source-control-provider.js";
+export { InMemoryWorkspaceProvider } from "./adapters/fakes/workspace-provider.js";
+export { InMemoryNotificationProvider } from "./adapters/fakes/notification-provider.js";
 export type { AgentRun, RunStatus } from "./domain/runs.js";
 export type { WorkItem, WorkQuery, WorkPage } from "./domain/work.js";
 export type { WorkflowDefinition } from "./domain/workflows.js";

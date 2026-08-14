@@ -4,6 +4,7 @@ import { InMemoryPersistenceProvider } from "../../src/adapters/persistence/in-m
 import { NativeAgentRuntime } from "../../src/application/agent/native-runtime.js";
 import { SlidingWindowContextManager } from "../../src/application/agent/context-manager.js";
 import { InMemoryEventBus } from "../../src/application/event-bus.js";
+import { HookRegistry } from "../../src/application/hooks.js";
 import { RuleBasedPermissionProvider } from "../../src/application/policy-engine.js";
 import { ProviderRegistry } from "../../src/application/provider-registry.js";
 import { ToolRegistry } from "../../src/application/tool-registry.js";
@@ -11,6 +12,7 @@ import { ToolRegistry } from "../../src/application/tool-registry.js";
 function createRuntime(
   provider: ScriptedModelProvider,
   persistence = new InMemoryPersistenceProvider(),
+  hooks?: HookRegistry,
 ) {
   const models = new ProviderRegistry<ScriptedModelProvider>();
   models.register(provider);
@@ -34,6 +36,7 @@ function createRuntime(
     events,
     new SlidingWindowContextManager(20),
     persistence,
+    hooks,
   );
   return { runtime, provider, persistence, eventTypes };
 }
@@ -120,5 +123,35 @@ describe("NativeAgentRuntime", () => {
     const result = await runtime.run(request, controller.signal);
     expect(result.outcome).toBe("CANCELLED");
     expect(result.summary).toBe("operator cancelled");
+  });
+
+  it("executes agent lifecycle hooks around a turn", async () => {
+    const provider = new ScriptedModelProvider([
+      [{ type: "complete", text: "done", outcome: "GOAL_COMPLETED" }],
+    ]);
+    const hooks = new HookRegistry();
+    const calls: string[] = [];
+    hooks.register({
+      id: "before",
+      name: "before_agent_start",
+      execute: async () => {
+        calls.push("before_agent_start");
+      },
+    });
+    hooks.register({
+      id: "after",
+      name: "after_agent_turn",
+      execute: async () => {
+        calls.push("after_agent_turn");
+      },
+    });
+    const persistence = new InMemoryPersistenceProvider();
+    const { runtime } = createRuntime(provider, persistence, hooks);
+    await persistence.initialize();
+
+    const result = await runtime.run(request);
+
+    expect(result.outcome).toBe("GOAL_COMPLETED");
+    expect(calls).toEqual(["before_agent_start", "after_agent_turn"]);
   });
 });

@@ -3,6 +3,8 @@ import { homedir } from "node:os";
 import { dirname, isAbsolute, resolve } from "node:path";
 import YAML from "yaml";
 import { z } from "zod";
+import { LayeredConfiguration } from "../application/configuration.js";
+import type { JsonObject, JsonValue } from "../domain/json.js";
 import { permissionCapabilities } from "../domain/permissions.js";
 
 const secretReference = z.string().min(1);
@@ -192,36 +194,73 @@ export interface LoadedFableConfig {
   value: FableConfig;
   path: string;
   directory: string;
+  sources: string[];
 }
 
 export async function loadFableConfig(explicitPath?: string): Promise<LoadedFableConfig> {
-  const candidates =
-    explicitPath === undefined
-      ? [
-          resolve(process.cwd(), "fable.config.yaml"),
-          resolve(homedir(), ".config/fable/config.yaml"),
-        ]
-      : [resolve(explicitPath)];
-  const path = await firstExisting(candidates);
-  if (path === undefined) {
+  if (explicitPath !== undefined) return loadFableConfigLayers([resolve(explicitPath)]);
+
+  const paths = await existing([
+    resolve(homedir(), ".config/fable/config.yaml"),
+    resolve(process.cwd(), "fable.config.yaml"),
+  ]);
+  if (paths.length === 0) {
     throw new Error("No Fable configuration found. Run `fable init` or pass --config.");
   }
-  const parsed: unknown = YAML.parse(await readFile(path, "utf8"));
-  return { value: fableConfigSchema.parse(parsed), path, directory: dirname(path) };
+  return loadFableConfigLayers(paths);
+}
+
+export async function loadFableConfigLayers(paths: string[]): Promise<LoadedFableConfig> {
+  if (paths.length === 0) throw new Error("At least one configuration layer is required");
+  const resolvedPaths = paths.map((path) => resolve(path));
+  const layers = await Promise.all(
+    resolvedPaths.map(async (path) => parseConfigLayer(YAML.parse(await readFile(path, "utf8")))),
+  );
+  const defaults = toJsonObject(fableConfigSchema.parse({ version: 1 }));
+  const merged = new LayeredConfiguration([defaults, ...layers]).value();
+  const path = resolvedPaths.at(-1)!;
+  return {
+    value: fableConfigSchema.parse(merged),
+    path,
+    directory: dirname(path),
+    sources: resolvedPaths,
+  };
 }
 
 export function resolveConfigPath(config: LoadedFableConfig, path: string): string {
   return isAbsolute(path) ? path : resolve(config.directory, path);
 }
 
-async function firstExisting(paths: string[]): Promise<string | undefined> {
+async function existing(paths: string[]): Promise<string[]> {
+  const result: string[] = [];
   for (const path of paths) {
     try {
       await access(path);
-      return path;
+      result.push(path);
     } catch {
       // Continue to the next conventional location.
     }
   }
-  return undefined;
+  return result;
+}
+
+function parseConfigLayer(value: unknown): JsonObject {
+  if (!isJsonObject(value)) throw new TypeError("Fable configuration must be a YAML object");
+  return value;
+}
+
+function toJsonObject(value: unknown): JsonObject {
+  if (!isJsonObject(value)) throw new TypeError("Fable defaults must be JSON-compatible");
+  return value;
+}
+
+function isJsonObject(value: unknown): value is JsonObject {
+  if (value === null || Array.isArray(value) || typeof value !== "object") return false;
+  return Object.values(value).every(isJsonValue);
+}
+
+function isJsonValue(value: unknown): value is JsonValue {
+  if (value === null || ["string", "number", "boolean"].includes(typeof value)) return true;
+  if (Array.isArray(value)) return value.every(isJsonValue);
+  return isJsonObject(value);
 }

@@ -99,6 +99,17 @@ export class NativeAgentRuntime implements AgentRuntime {
     );
 
     try {
+      await this.hooks?.execute(
+        "before_agent_start",
+        {
+          runId: request.runId,
+          sessionId,
+          provider: provider.descriptor.id,
+          model: request.model,
+          goal: request.goal,
+        },
+        signal,
+      );
       while (true) {
         signal.throwIfAborted();
         usage.wallClockMs = Date.now() - Date.parse(started);
@@ -153,6 +164,11 @@ export class NativeAgentRuntime implements AgentRuntime {
         const inferredOutcome = turn.outcome ?? parseOutcome(turn.text);
         if (inferredOutcome !== undefined) {
           await this.persistSession(request, sessionId, messages, usage, turns, toolCalls, started);
+          await this.hooks?.execute(
+            "after_agent_turn",
+            { runId: request.runId, sessionId, turn: turns, outcome: inferredOutcome },
+            signal,
+          );
           return this.result(
             request,
             sessionId,

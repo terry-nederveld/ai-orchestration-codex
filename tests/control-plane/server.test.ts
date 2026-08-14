@@ -21,6 +21,7 @@ describe("ControlPlaneServer", () => {
     const config: LoadedFableConfig = {
       path: join(directory, "fable.config.yaml"),
       directory,
+      sources: [join(directory, "fable.config.yaml")],
       value: {
         version: 1,
         dataDirectory: ".fable",

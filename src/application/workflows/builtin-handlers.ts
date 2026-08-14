@@ -15,10 +15,11 @@ import type {
 import type { JsonObject, JsonValue } from "../../domain/json.js";
 import type { GoalOutcome, Usage } from "../../domain/providers.js";
 import type { ProviderRegistry } from "../provider-registry.js";
-import { resolveWorkspacePath } from "../../adapters/tools/path-sandbox.js";
+import { resolveWorkspacePath } from "../workspace-path.js";
 import { StepExecutionError } from "./engine.js";
 import { interpolate } from "./expressions.js";
 import type { WorkflowActionRegistry } from "./action-registry.js";
+import type { HookRegistry } from "../hooks.js";
 
 export class AgentStepHandler implements WorkflowStepHandler {
   public readonly type = "agent" as const;
@@ -26,6 +27,7 @@ export class AgentStepHandler implements WorkflowStepHandler {
   public constructor(
     private readonly nativeRuntime: AgentRuntime,
     private readonly agentProviders: ProviderRegistry<AgentProvider>,
+    private readonly hooks?: HookRegistry,
   ) {}
 
   public async execute(stepValue: WorkflowStep, context: WorkflowStepContext) {
@@ -37,6 +39,16 @@ export class AgentStepHandler implements WorkflowStepHandler {
       role.provider === undefined ? undefined : this.agentProviders.get(role.provider);
 
     if (agentProvider !== undefined) {
+      await this.hooks?.execute(
+        "before_agent_start",
+        {
+          runId: context.runId,
+          provider: agentProvider.descriptor.id,
+          role: step.agent,
+          goal,
+        },
+        context.signal,
+      );
       let outcome: GoalOutcome | undefined;
       let summary = "";
       let sessionId: string | undefined;
@@ -60,6 +72,17 @@ export class AgentStepHandler implements WorkflowStepHandler {
           throw new StepExecutionError(event.error);
         }
       }
+      await this.hooks?.execute(
+        "after_agent_turn",
+        {
+          runId: context.runId,
+          provider: agentProvider.descriptor.id,
+          role: step.agent,
+          outcome: outcome ?? "FATAL_FAILURE",
+          summary,
+        },
+        context.signal,
+      );
       if (outcome !== "GOAL_COMPLETED") {
         throw new StepExecutionError(
           `Agent ${step.agent} ended with ${outcome ?? "no outcome"}: ${summary}`,

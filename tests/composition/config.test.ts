@@ -2,7 +2,7 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { loadFableConfig } from "../../src/composition/config.js";
+import { loadFableConfig, loadFableConfigLayers } from "../../src/composition/config.js";
 
 const temporaryPaths: string[] = [];
 
@@ -32,11 +32,51 @@ models:
     const loaded = await loadFableConfig(path);
 
     expect(loaded.directory).toBe(directory);
+    expect(loaded.sources).toEqual([path]);
     expect(loaded.value).toMatchObject({
       dataDirectory: ".fable",
       concurrency: { workflowSteps: 4 },
       models: [{ id: "local", requireApiKey: false }],
     });
+  });
+
+  it("merges user and project layers with project precedence", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "fable-config-layers-"));
+    temporaryPaths.push(directory);
+    const userPath = join(directory, "user.yaml");
+    const projectPath = join(directory, "project.yaml");
+    await writeFile(
+      userPath,
+      `version: 1
+permissions:
+  - capability: filesystem.read
+    decision: allow
+concurrency:
+  workflowSteps: 2
+scheduler:
+  pollIntervalMs: 60000
+`,
+    );
+    await writeFile(
+      projectPath,
+      `version: 1
+concurrency:
+  workflowSteps: 8
+scheduler:
+  enabled: true
+  sources: []
+`,
+    );
+
+    const loaded = await loadFableConfigLayers([userPath, projectPath]);
+
+    expect(loaded.sources).toEqual([userPath, projectPath]);
+    expect(loaded.directory).toBe(directory);
+    expect(loaded.value.permissions).toEqual([
+      { capability: "filesystem.read", decision: "allow" },
+    ]);
+    expect(loaded.value.concurrency.workflowSteps).toBe(8);
+    expect(loaded.value.scheduler).toMatchObject({ enabled: true, pollIntervalMs: 60_000 });
   });
 
   it("rejects invalid permission capabilities", async () => {

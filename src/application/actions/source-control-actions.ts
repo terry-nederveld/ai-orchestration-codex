@@ -2,6 +2,7 @@ import type { JsonObject } from "../../domain/json.js";
 import type { WorkflowAction, WorkflowActionContext } from "../../ports/extensions.js";
 import type { PermissionProvider } from "../../ports/security.js";
 import type { SourceControlProvider } from "../../ports/source-control.js";
+import type { HookRegistry } from "../hooks.js";
 
 export class CommitAction implements WorkflowAction {
   public readonly id = "source_control.commit";
@@ -9,19 +10,38 @@ export class CommitAction implements WorkflowAction {
   public constructor(
     private readonly sourceControl: SourceControlProvider,
     private readonly permissions: PermissionProvider,
+    private readonly hooks?: HookRegistry,
   ) {}
 
   public async execute(context: WorkflowActionContext): Promise<JsonObject> {
     const workspace = requiredWorkspace(context);
     await authorize(this.permissions, context.runId, "git.write", workspace, this.id);
-    const message = requiredString(context.inputs, "message");
-    const paths = optionalStrings(context.inputs, "paths") ?? ["."];
+    const commitContext: JsonObject = {
+      runId: context.runId,
+      workspace,
+      message: requiredString(context.inputs, "message"),
+      paths: optionalStrings(context.inputs, "paths") ?? ["."],
+    };
+    const prepared =
+      (await this.hooks?.execute("before_commit", commitContext, context.signal)) ?? commitContext;
+    const message = requiredString(prepared, "message");
+    const paths = optionalStrings(prepared, "paths") ?? ["."];
     const stage = await this.sourceControl.stage(workspace, paths, context.signal);
     if (stage.exitCode !== 0) throw new Error(`Git stage failed: ${stage.stderr}`);
     const commit = await this.sourceControl.commit(workspace, message, context.signal);
     if (commit.exitCode !== 0)
       throw new Error(`Git commit failed: ${commit.stderr || commit.stdout}`);
-    return { exitCode: commit.exitCode, stdout: commit.stdout, durationMs: commit.durationMs };
+    const result = {
+      exitCode: commit.exitCode,
+      stdout: commit.stdout,
+      durationMs: commit.durationMs,
+    };
+    await this.hooks?.execute(
+      "after_commit",
+      { runId: context.runId, workspace, message, paths, ...result },
+      context.signal,
+    );
+    return result;
   }
 }
 
@@ -31,6 +51,7 @@ export class PushAction implements WorkflowAction {
   public constructor(
     private readonly sourceControl: SourceControlProvider,
     private readonly permissions: PermissionProvider,
+    private readonly hooks?: HookRegistry,
   ) {}
 
   public async execute(context: WorkflowActionContext): Promise<JsonObject> {
@@ -52,6 +73,7 @@ export class PullRequestAction implements WorkflowAction {
   public constructor(
     private readonly sourceControl: SourceControlProvider,
     private readonly permissions: PermissionProvider,
+    private readonly hooks?: HookRegistry,
   ) {}
 
   public async execute(context: WorkflowActionContext): Promise<JsonObject> {
@@ -61,18 +83,37 @@ export class PullRequestAction implements WorkflowAction {
     const head =
       optionalString(context.inputs, "head") ??
       (await this.sourceControl.currentBranch(workspace, context.signal));
+    const pullRequestContext: JsonObject = {
+      runId: context.runId,
+      workspace,
+      repository,
+      head,
+      base: optionalString(context.inputs, "base") ?? "main",
+      title: requiredString(context.inputs, "title"),
+      body: optionalString(context.inputs, "body") ?? "",
+      draft: context.inputs["draft"] !== false,
+    };
+    const prepared =
+      (await this.hooks?.execute("before_pull_request", pullRequestContext, context.signal)) ??
+      pullRequestContext;
     const result = await this.sourceControl.createPullRequest(
       {
-        repository,
-        head,
-        base: optionalString(context.inputs, "base") ?? "main",
-        title: requiredString(context.inputs, "title"),
-        body: optionalString(context.inputs, "body") ?? "",
-        draft: context.inputs["draft"] !== false,
+        repository: requiredString(prepared, "repository"),
+        head: requiredString(prepared, "head"),
+        base: requiredString(prepared, "base"),
+        title: requiredString(prepared, "title"),
+        body: optionalString(prepared, "body") ?? "",
+        draft: prepared["draft"] !== false,
       },
       context.signal,
     );
-    return { id: result.id, number: result.number, url: result.url, state: result.state };
+    const output = { id: result.id, number: result.number, url: result.url, state: result.state };
+    await this.hooks?.execute(
+      "after_pull_request",
+      { runId: context.runId, workspace, repository, head, ...output },
+      context.signal,
+    );
+    return output;
   }
 }
 

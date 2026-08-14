@@ -200,9 +200,9 @@ export class FableRuntime {
         ? {}
         : { apiBaseUrl: config.value.sourceControl.apiUrl }),
     });
-    workflowActions.register(new CommitAction(sourceControl, permissions));
-    workflowActions.register(new PushAction(sourceControl, permissions));
-    workflowActions.register(new PullRequestAction(sourceControl, permissions));
+    workflowActions.register(new CommitAction(sourceControl, permissions, hooks));
+    workflowActions.register(new PushAction(sourceControl, permissions, hooks));
+    workflowActions.register(new PullRequestAction(sourceControl, permissions, hooks));
 
     const runtime = new NativeAgentRuntime(
       models,
@@ -214,7 +214,7 @@ export class FableRuntime {
       hooks,
     );
     const handlers = new WorkflowStepHandlerRegistry();
-    handlers.register(new AgentStepHandler(runtime, agents));
+    handlers.register(new AgentStepHandler(runtime, agents, hooks));
     handlers.register(new CommandStepHandler(runner, permissions));
     handlers.register(new ToolStepHandler(tools, permissions));
     handlers.register(new ActionStepHandler(workflowActions));
