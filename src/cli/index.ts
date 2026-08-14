@@ -62,6 +62,26 @@ program
     await withRuntime(async (runtime) => output({ providers: await runtime.providerStatuses() }));
   });
 
+const workflows = program.command("workflows").description("inspect configured workflows");
+workflows.command("list").action(async () => {
+  await withRuntime(async (runtime) => output({ workflows: runtime.workflowDefinitions() }));
+});
+
+const agents = program.command("agents").description("inspect coding-agent providers");
+agents.command("list").action(async () => {
+  await withRuntime(async (runtime) => {
+    const providers = await runtime.providerStatuses();
+    output({ agents: providers.filter(({ descriptor }) => descriptor.kind === "agent") });
+  });
+});
+
+const extensions = program
+  .command("extensions")
+  .description("inspect extensions, skills, and MCP servers");
+extensions.command("list").action(async () => {
+  await withRuntime(async (runtime) => output(runtime.extensionStatus()));
+});
+
 program
   .command("status")
   .description("show local orchestration and scheduler status")

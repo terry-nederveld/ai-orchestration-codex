@@ -1,6 +1,11 @@
 import { useState } from "react";
 import type { ControlPlaneConnection } from "../app/types.js";
 import { saveConnection } from "../app/connection.js";
+import {
+  disableNotifications,
+  enableNotifications,
+  notificationsEnabled,
+} from "../app/notifications.js";
 import { Button, PageHeader, Panel } from "../components/ui.js";
 
 export function Settings({
@@ -12,9 +17,26 @@ export function Settings({
 }) {
   const [url, setUrl] = useState(connection?.url ?? "http://127.0.0.1:3210");
   const [token, setToken] = useState(connection?.token ?? "");
+  const [notifications, setNotifications] = useState(notificationsEnabled());
+  const [notificationMessage, setNotificationMessage] = useState<string>();
   function save(): void {
     saveConnection({ url: url.replace(/\/$/, ""), token });
     onReconnect();
+  }
+  async function toggleNotifications(): Promise<void> {
+    if (notifications) {
+      disableNotifications();
+      setNotifications(false);
+      setNotificationMessage("Native notifications are disabled.");
+      return;
+    }
+    const granted = await enableNotifications();
+    setNotifications(granted);
+    setNotificationMessage(
+      granted
+        ? "Native notifications are enabled for approvals and terminal run states."
+        : "Notification permission was not granted or this is the browser build.",
+    );
   }
   return (
     <>
@@ -44,6 +66,23 @@ export function Settings({
             </label>
             <Button onClick={save}>Save and reconnect</Button>
           </div>
+        </Panel>
+        <Panel
+          title="Native notifications"
+          subtitle="Opt in to generic approval and terminal-state alerts from the desktop app."
+        >
+          <p className="panel-footnote">
+            Alerts contain a shortened run ID only. Work-item text, prompts, logs, and secrets are
+            never included.
+          </p>
+          <Button variant="secondary" onClick={() => void toggleNotifications()}>
+            {notifications ? "Disable notifications" : "Enable notifications"}
+          </Button>
+          {notificationMessage === undefined ? null : (
+            <p className="panel-footnote" role="status">
+              {notificationMessage}
+            </p>
+          )}
         </Panel>
         <Panel
           title="Configuration"

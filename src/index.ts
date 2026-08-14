@@ -1,5 +1,5 @@
 export { FableRuntime } from "./composition/runtime.js";
-export type { ProviderStatus, StartRunRequest } from "./composition/runtime.js";
+export type { ExtensionStatus, ProviderStatus, StartRunRequest } from "./composition/runtime.js";
 export {
   fableConfigSchema,
   loadFableConfig,

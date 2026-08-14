@@ -1,7 +1,9 @@
 import { randomUUID } from "node:crypto";
 import type { JsonObject } from "../domain/json.js";
+import type { EventBus } from "../ports/event-bus.js";
 import type { PersistenceProvider } from "../ports/persistence.js";
 import type { ApprovalProvider } from "../ports/security.js";
+import { EventFactory } from "./events.js";
 
 export type ApprovalDecision = "approved" | "denied" | "timed_out";
 
@@ -24,7 +26,10 @@ interface PendingApproval {
 export class ApprovalManager implements ApprovalProvider {
   readonly #pending = new Map<string, PendingApproval>();
 
-  public constructor(private readonly persistence: PersistenceProvider) {}
+  public constructor(
+    private readonly persistence: PersistenceProvider,
+    private readonly events?: EventBus,
+  ) {}
 
   public async request(input: {
     runId: string;
@@ -46,6 +51,15 @@ export class ApprovalManager implements ApprovalProvider {
         : { expiresAt: new Date(Date.now() + input.timeoutMs).toISOString() }),
     };
     await this.persistence.entities.put("approval", id, record);
+    await this.events?.publish(
+      new EventFactory({ source: "approval-manager", runId: input.runId }).create(
+        "approval.requested",
+        {
+          approvalId: id,
+          ...(record.expiresAt === undefined ? {} : { expiresAt: record.expiresAt }),
+        },
+      ),
+    );
     return new Promise<ApprovalDecision>((resolve) => {
       const pending: PendingApproval = { resolve };
       if (input.timeoutMs !== undefined) {
@@ -72,6 +86,12 @@ export class ApprovalManager implements ApprovalProvider {
       decidedAt: new Date().toISOString(),
     };
     await this.persistence.entities.put("approval", id, value, stored.version);
+    await this.events?.publish(
+      new EventFactory({ source: "approval-manager", runId: stored.value.runId }).create(
+        "approval.resolved",
+        { approvalId: id, decision },
+      ),
+    );
     const pending = this.#pending.get(id);
     if (pending !== undefined) {
       if (pending.timeout !== undefined) clearTimeout(pending.timeout);

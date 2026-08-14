@@ -48,6 +48,7 @@
     "@modelcontextprotocol/sdk": "^1.17.3",
     "@openai/codex-sdk": "^0.89.0",
     "@tauri-apps/api": "^2.8.0",
+    "@tauri-apps/plugin-notification": "^2.3.3",
     "@tauri-apps/plugin-shell": "^2.3.5",
     "commander": "^14.0.0",
     "react": "^19.1.1",

@@ -4,7 +4,7 @@ Updated: 2026-08-14
 
 ## Current objective
 
-Deliver the first complete, testable issue-to-code vertical slice, then widen provider and desktop coverage without weakening the domain boundaries.
+Complete release hardening, cross-platform CI, documentation, and final verification for the implemented v0.1 platform.
 
 ## Completed milestones
 
@@ -22,11 +22,14 @@ Deliver the first complete, testable issue-to-code vertical slice, then widen pr
 - Added supported coding-agent adapters for Codex SDK/ChatGPT sessions, Claude Code CLI account sessions, and GitHub Copilot SDK sessions, including discovery, resume, cancellation, streaming, policy mediation, and plan/API consumption accounting.
 - Added normalized GitHub Issues, Jira Cloud v3, Jira Data Center v2, and Linear GraphQL work adapters with fixture-backed discovery, pagination, updates, transitions, comments, labels, assignees, and repository references.
 - Implemented validated/grant-gated extension manifests, lazy filesystem skill indexing, namespaced MCP tools over stdio or Streamable HTTP, composite secret lookup, authenticated encrypted-file secret storage, and containment-verified workspace cleanup.
+- Added the CLI, loopback-authenticated HTTP/SSE control plane, durable scheduler/recovery, and provider/workflow/approval/run operator commands.
+- Added the Tauri desktop host, embedded supervised sidecar, responsive React operations console, and opt-in privacy-preserving native notifications.
+- Added layered user/project configuration, full lifecycle hook wiring, deterministic source-control/workspace/notification fakes, and executable architecture boundaries.
+- Added macOS/Windows/Linux CI and native installer workflows, dependency audit/update automation, examples, and developer/operator/security/release documentation.
 
 ## Active work
 
-- Build the CLI composition root and local control-plane service.
-- Build the Tauri desktop shell and operator experience on the same control-plane API.
+- Final packaged-build regression, failure/security review, and repository audit.
 
 ## Known constraints
 
@@ -36,13 +39,13 @@ Deliver the first complete, testable issue-to-code vertical slice, then widen pr
 
 ## Remaining requirements
 
-- CLI, control plane, desktop UI, packaging, reliability hardening, security review, operator/developer documentation, and complete validation.
+- Validate the final notification-enabled package and document the final verification evidence.
 
 ## Test status
 
-- 24 test files and 48 tests pass, including the end-to-end autonomous issue-to-code workflow and provider/extension/MCP/security contract fixtures.
-- Formatting, linting, strict typechecking, core compilation, SQLite migration startup, provider/persistence contracts, security-sensitive tool tests, workflow/agent tests, and all 8 ADR validations pass.
+- 34 test files and 68 tests pass, including the end-to-end autonomous issue-to-code workflow and provider/extension/MCP/security/architecture fixtures.
+- Formatting, linting, strict typechecking, core/UI compilation, Rust host compilation, SQLite migration startup, scheduler recovery, security-sensitive tool tests, and all 9 ADR validations pass.
 
 ## Deferred items
 
-- None. Items that cannot be validated locally will be covered by target-specific CI or explicitly documented only after implementation.
+- Dedicated GitHub Projects V2 field synchronization, native-runtime subagent dispatch, OS-keychain storage, signed/notarized production artifacts, and in-app auto-update are explicit post-v0.1 items. Provider-owned subagents, repository Issues that appear in Projects, an encrypted vault, and immutable target-native releases cover the current boundary.

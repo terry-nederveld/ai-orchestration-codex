@@ -47,6 +47,7 @@ describe("ControlPlaneServer", () => {
       },
     };
     const runtime = await FableRuntime.create(config);
+    expect(() => new ControlPlaneServer(runtime, { host: "0.0.0.0" })).toThrow("loopback");
     const server = new ControlPlaneServer(runtime, { port: 0, token: "test-token" });
     try {
       let address: ControlPlaneAddress;

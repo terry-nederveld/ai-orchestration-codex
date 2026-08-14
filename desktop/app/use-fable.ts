@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { FableClient } from "./client.js";
 import { connectControlPlane } from "./connection.js";
+import { notifyForEvent } from "./notifications.js";
 import type { ControlPlaneConnection, Snapshot } from "./types.js";
 
 const emptySnapshot: Snapshot = {
@@ -67,7 +68,10 @@ export function useFable(): FableData {
     const controller = new AbortController();
     void refresh();
     void client
-      .subscribe(() => void refresh(), controller.signal)
+      .subscribe((event) => {
+        void notifyForEvent(event).catch(() => undefined);
+        void refresh();
+      }, controller.signal)
       .catch((cause: unknown) => {
         if (!controller.signal.aborted)
           setError(cause instanceof Error ? cause.message : String(cause));

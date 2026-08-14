@@ -4,6 +4,7 @@ const storageKey = "fable.control-plane.connection";
 
 export async function connectControlPlane(): Promise<ControlPlaneConnection> {
   if (isTauri()) {
+    localStorage.removeItem(storageKey);
     const { invoke } = await import("@tauri-apps/api/core");
     return invoke<ControlPlaneConnection>("start_control_plane");
   }
@@ -13,6 +14,7 @@ export async function connectControlPlane(): Promise<ControlPlaneConnection> {
 }
 
 export function saveConnection(connection: ControlPlaneConnection): void {
+  if (isTauri()) return;
   localStorage.setItem(storageKey, JSON.stringify(connection));
 }
 

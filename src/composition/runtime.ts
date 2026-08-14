@@ -64,6 +64,7 @@ import type { JsonObject } from "../domain/json.js";
 import type { AgentRun } from "../domain/runs.js";
 import type { WorkPage, WorkQuery } from "../domain/work.js";
 import type { EventBus } from "../ports/event-bus.js";
+import type { ExtensionManifest, SkillMetadata } from "../ports/extensions.js";
 import type { Provider, AgentProvider, ModelProvider, WorkProvider } from "../ports/providers.js";
 import type { SecretProvider } from "../ports/security.js";
 import type { WorkspaceProvider } from "../ports/workspace.js";
@@ -87,6 +88,12 @@ export interface StartRunRequest {
   owner?: string;
 }
 
+export interface ExtensionStatus {
+  manifests: ExtensionManifest[];
+  skills: SkillMetadata[];
+  mcpServers: Array<{ id: string; tools: string[] }>;
+}
+
 interface ActiveRun {
   controller: AbortController;
   promise: Promise<OrchestrationResult>;
@@ -108,6 +115,8 @@ export class FableRuntime {
   readonly #hooks: HookRegistry;
   readonly #workflows = new Map<string, CompiledWorkflow>();
   readonly #mcp: McpToolProvider[] = [];
+  readonly #extensionManifests: ExtensionManifest[] = [];
+  readonly #skillMetadata: SkillMetadata[] = [];
   readonly #active = new Map<string, ActiveRun>();
   readonly #orchestrator: Orchestrator;
   readonly #sourceControl: GitHubSourceControlProvider;
@@ -156,7 +165,7 @@ export class FableRuntime {
     const innerEvents = new InMemoryEventBus();
     const events = new PersistedEventBus(innerEvents, persistence.events);
     const secrets = buildSecrets(config, dataDirectory);
-    const approvals = new ApprovalManager(persistence);
+    const approvals = new ApprovalManager(persistence, events);
     const runner = new NodeProcessRunner();
     const permissions = new RuleBasedPermissionProvider(
       config.value.permissions.map((rule) => ({
@@ -269,6 +278,21 @@ export class FableRuntime {
     const workflow = this.#workflows.get(id);
     if (workflow === undefined) throw new Error(`Unknown workflow: ${id}`);
     return workflow;
+  }
+
+  public workflowDefinitions() {
+    return this.workflowIds().map((id) => structuredClone(this.workflow(id).definition));
+  }
+
+  public extensionStatus(): ExtensionStatus {
+    return {
+      manifests: structuredClone(this.#extensionManifests),
+      skills: structuredClone(this.#skillMetadata),
+      mcpServers: this.#mcp.map((server) => ({
+        id: server.id,
+        tools: server.list().map((tool) => tool.name),
+      })),
+    };
   }
 
   public async providerStatuses(): Promise<ProviderStatus[]> {
@@ -393,13 +417,15 @@ export class FableRuntime {
     const paths = this.#config.value.extensions.paths.map((path) =>
       resolveConfigPath(this.#config, path),
     );
-    for (const manifest of await provider.discover(paths)) {
+    const manifests = await provider.discover(paths);
+    this.#extensionManifests.push(...structuredClone(manifests));
+    for (const manifest of manifests) {
       const contribution = await provider.load(manifest);
       for (const tool of contribution.tools ?? []) this.#tools.register(tool);
       for (const action of contribution.workflowActions ?? []) actions.register(action);
       for (const hook of contribution.hooks ?? []) this.#hooks.register(hook);
     }
-    await this.skills.discover(paths);
+    this.#skillMetadata.push(...(await this.skills.discover(paths)));
   }
 
   async #loadMcp(): Promise<void> {

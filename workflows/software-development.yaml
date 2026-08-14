@@ -1,0 +1,81 @@
+schemaVersion: 1
+id: software-development
+name: Software development
+description: Implement, test, independently review, approve, commit, push, and open a draft pull request.
+
+trigger:
+  states: [open]
+
+eligibility:
+  includeLabels: [agent-ready]
+  excludeLabels: [blocked]
+
+workspace:
+  strategy: clone
+  retainOnFailure: true
+
+budgets:
+  maxIterations: 20
+  maxWallClockMs: 3600000
+  maxSubscriptionRequests: 20
+
+agents:
+  implementer:
+    provider: codex-sdk
+    requiredCapabilities: [tool_use, code_execution]
+  reviewer:
+    provider: codex-sdk
+    requiredCapabilities: [tool_use, code_execution]
+    instructions: Review independently. Verify the diff and tests; fix only concrete defects.
+
+steps:
+  - id: implement
+    type: agent
+    agent: implementer
+    goal: Implement the work item completely. Run focused checks and leave the workspace ready to review.
+
+  - id: test
+    type: command
+    command: npm
+    args: [test]
+    dependsOn: [implement]
+    timeoutMs: 900000
+
+  - id: review
+    type: agent
+    agent: reviewer
+    goal: Independently review the implementation against the work item and fix any concrete defects you find.
+    dependsOn: [implement]
+
+  - id: approve_delivery
+    type: approval
+    title: Deliver the completed change
+    description: Tests and independent review finished. Approve the commit, push, and draft pull request.
+    dependsOn: [test, review]
+    timeoutMs: 86400000
+
+  - id: commit
+    type: action
+    action: source_control.commit
+    input:
+      message: "feat(agent): implement requested change"
+    dependsOn: [approve_delivery]
+
+  - id: push
+    type: action
+    action: source_control.push
+    input: {}
+    dependsOn: [commit]
+
+  - id: pull_request
+    type: action
+    action: source_control.pull_request
+    input:
+      repository: "${{ work.repository.id }}"
+      title: "${{ work.title }}"
+      body: "Automated implementation for ${{ work.externalId }}."
+      draft: true
+    dependsOn: [push]
+
+transitions:
+  success: closed

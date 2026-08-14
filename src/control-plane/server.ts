@@ -35,6 +35,9 @@ export class ControlPlaneServer {
   public constructor(runtime: FableRuntime, options: ControlPlaneOptions = {}) {
     this.#runtime = runtime;
     this.#host = options.host ?? "127.0.0.1";
+    if (!isLoopbackHost(this.#host)) {
+      throw new Error("Control plane host must be a loopback address");
+    }
     this.#port = options.port ?? 3210;
     this.#token = options.token ?? randomBytes(32).toString("base64url");
     this.#origins = new Set(
@@ -147,8 +150,12 @@ export class ControlPlaneServer {
     }
     if (request.method === "GET" && url.pathname === "/api/workflows") {
       sendJson(response, 200, {
-        workflows: this.#runtime.workflowIds().map((id) => this.#runtime.workflow(id).definition),
+        workflows: this.#runtime.workflowDefinitions(),
       });
+      return;
+    }
+    if (request.method === "GET" && url.pathname === "/api/extensions") {
+      sendJson(response, 200, this.#runtime.extensionStatus());
       return;
     }
     if (request.method === "GET" && url.pathname === "/api/work") {
@@ -347,4 +354,8 @@ function statusForError(error: unknown): number {
 
 function formatHost(host: string): string {
   return host.includes(":") ? `[${host}]` : host;
+}
+
+function isLoopbackHost(host: string): boolean {
+  return ["127.0.0.1", "localhost", "::1"].includes(host);
 }

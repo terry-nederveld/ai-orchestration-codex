@@ -1,12 +1,18 @@
 import { describe, expect, it } from "vitest";
 import { InMemoryPersistenceProvider } from "../../src/adapters/persistence/in-memory.js";
 import { ApprovalManager } from "../../src/application/approval-manager.js";
+import { InMemoryEventBus } from "../../src/application/event-bus.js";
 
 describe("ApprovalManager", () => {
   it("persists, lists, and resolves a pending approval", async () => {
     const persistence = new InMemoryPersistenceProvider();
     await persistence.initialize();
-    const approvals = new ApprovalManager(persistence);
+    const events = new InMemoryEventBus();
+    const eventTypes: string[] = [];
+    events.subscribe("approval.*", (event) => {
+      eventTypes.push(event.type);
+    });
+    const approvals = new ApprovalManager(persistence, events);
 
     const decision = approvals.request({
       runId: "run-1",
@@ -23,6 +29,7 @@ describe("ApprovalManager", () => {
     await expect(decision).resolves.toBe("approved");
     await expect(approvals.resolve(record!.id, "denied")).resolves.toBe(false);
     await expect(approvals.list()).resolves.toMatchObject([{ status: "approved" }]);
+    expect(eventTypes).toEqual(["approval.requested", "approval.resolved"]);
   });
 
   it("turns an expired gate into an explicit timeout decision", async () => {

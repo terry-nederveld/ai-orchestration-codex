@@ -154,6 +154,7 @@ fn bootstrap_config(path: &Path) -> Result<(), String> {
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
+        .plugin(tauri_plugin_notification::init())
         .manage(ControlPlaneState::default())
         .invoke_handler(tauri::generate_handler![start_control_plane])
         .build(tauri::generate_context!())
