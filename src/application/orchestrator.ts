@@ -15,6 +15,7 @@ import type { CompiledWorkflow } from "./workflows/compiler.js";
 import type { WorkflowEngine } from "./workflows/engine.js";
 
 export interface OrchestrationRequest {
+  runId?: string;
   workProviderId: string;
   externalId: string;
   workflow: CompiledWorkflow;
@@ -49,7 +50,7 @@ export class Orchestrator {
     if (workItem === undefined) throw new Error(`Work item not found: ${request.externalId}`);
     assertEligible(workItem, request.workflow);
 
-    const run = createRun(workItem, request.workflow.definition.id);
+    const run = createRun(workItem, request.workflow.definition.id, request.runId);
     const eventFactory = new EventFactory({ source: "orchestrator", runId: run.id });
     await this.persistRun(run);
     await this.events.publish(eventFactory.create("agent.queued", { workItemId: workItem.id }));
@@ -265,10 +266,10 @@ export class Orchestrator {
   }
 }
 
-function createRun(workItem: WorkItem, workflowId: string): AgentRun {
+function createRun(workItem: WorkItem, workflowId: string, runId?: string): AgentRun {
   const now = new Date().toISOString();
   return {
-    id: randomUUID(),
+    id: runId ?? randomUUID(),
     workItemId: workItem.id,
     workflowId,
     goal: workItem.description ?? workItem.title,

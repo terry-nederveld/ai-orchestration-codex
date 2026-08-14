@@ -45,7 +45,9 @@ export class JiraWorkProvider implements WorkProvider {
     this.#options = options;
     this.#fetch = options.fetch ?? globalThis.fetch;
     this.descriptor = {
-      id: `jira-${options.deployment}:${new URL(options.baseUrl).host}`,
+      id: `jira-${options.deployment}:${new URL(options.baseUrl).host}${
+        options.project === undefined ? "" : `:${options.project}`
+      }`,
       displayName: options.deployment === "cloud" ? "Jira Cloud" : "Jira Data Center",
       kind: "work",
       version: "1.0.0",
