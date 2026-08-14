@@ -16,6 +16,12 @@ export { loadWorkflow } from "./application/workflows/loader.js";
 export { ProviderRegistry } from "./application/provider-registry.js";
 export { ToolRegistry } from "./application/tool-registry.js";
 export { HookRegistry } from "./application/hooks.js";
+export { WorkScheduler, reconcileInterruptedRuns } from "./application/scheduler.js";
+export type {
+  SchedulerOptions,
+  SchedulerSource,
+  SchedulerStatus,
+} from "./application/scheduler.js";
 export type { AgentRuntime } from "./ports/agent-runtime.js";
 export type { AgentProvider, ModelProvider, Provider, WorkProvider } from "./ports/providers.js";
 export type { SourceControlProvider } from "./ports/source-control.js";

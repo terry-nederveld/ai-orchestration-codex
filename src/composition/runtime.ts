@@ -41,6 +41,11 @@ import { Orchestrator, type OrchestrationResult } from "../application/orchestra
 import { PersistedEventBus } from "../application/persisted-event-bus.js";
 import { RuleBasedPermissionProvider } from "../application/policy-engine.js";
 import { ProviderRegistry } from "../application/provider-registry.js";
+import {
+  reconcileInterruptedRuns,
+  WorkScheduler,
+  type SchedulerStatus,
+} from "../application/scheduler.js";
 import { ToolRegistry } from "../application/tool-registry.js";
 import { WorkflowActionRegistry } from "../application/workflows/action-registry.js";
 import {
@@ -106,6 +111,8 @@ export class FableRuntime {
   readonly #active = new Map<string, ActiveRun>();
   readonly #orchestrator: Orchestrator;
   readonly #sourceControl: GitHubSourceControlProvider;
+  #scheduler: WorkScheduler | undefined;
+  #servicesStarted = false;
 
   private constructor(
     config: LoadedFableConfig,
@@ -250,6 +257,7 @@ export class FableRuntime {
     await result.#loadExtensions(workflowActions);
     await result.#loadMcp();
     await result.#loadWorkflows();
+    result.#configureScheduler();
     return result;
   }
 
@@ -338,9 +346,40 @@ export class FableRuntime {
     return this.approvals.resolve(id, decision);
   }
 
+  public schedulerStatus(): SchedulerStatus {
+    return (
+      this.#scheduler?.status() ?? {
+        running: false,
+        activeRuns: 0,
+        maxConcurrentRuns: this.#config.value.scheduler.maxConcurrentRuns,
+      }
+    );
+  }
+
+  public async startServices(): Promise<void> {
+    if (this.#servicesStarted) return;
+    this.#servicesStarted = true;
+    await reconcileInterruptedRuns(this.persistence, this.events);
+    await this.approvals.reconcileInterrupted();
+    if (this.#config.value.scheduler.enabled) await this.#scheduler?.start();
+  }
+
+  public async startScheduler(): Promise<void> {
+    await this.#scheduler?.start();
+  }
+
+  public async stopScheduler(): Promise<void> {
+    await this.#scheduler?.stop();
+  }
+
+  public async runSchedulerOnce(): Promise<void> {
+    await this.#scheduler?.runOnce();
+  }
+
   public async close(): Promise<void> {
     for (const active of this.#active.values())
       active.controller.abort(new Error("Runtime closing"));
+    await this.#scheduler?.stop();
     await Promise.allSettled([...this.#active.values()].map((active) => active.promise));
     await Promise.allSettled(this.#mcp.map((provider) => provider.close()));
     await this.persistence.close();
@@ -400,6 +439,43 @@ export class FableRuntime {
       }
       this.#workflows.set(workflow.definition.id, workflow);
     }
+  }
+
+  #configureScheduler(): void {
+    const scheduler = this.#config.value.scheduler;
+    const sourceIds = new Set<string>();
+    for (const source of scheduler.sources) {
+      if (sourceIds.has(source.id)) throw new Error(`Duplicate scheduler source ID: ${source.id}`);
+      sourceIds.add(source.id);
+      this.#work.require(source.workProvider);
+      this.workflow(source.workflow);
+    }
+    this.#scheduler = new WorkScheduler(
+      scheduler.sources.map((source) => ({
+        id: source.id,
+        workProviderId: source.workProvider,
+        workflowId: source.workflow,
+        query: {
+          ...(source.query.project === undefined ? {} : { project: source.query.project }),
+          ...(source.query.states === undefined ? {} : { states: source.query.states }),
+          ...(source.query.labels === undefined ? {} : { labels: source.query.labels }),
+          ...(source.query.assignee === undefined ? {} : { assignee: source.query.assignee }),
+          ...(source.query.limit === undefined ? {} : { limit: source.query.limit }),
+        },
+      })),
+      {
+        pollIntervalMs: scheduler.pollIntervalMs,
+        maxConcurrentRuns: scheduler.maxConcurrentRuns,
+        maxAttempts: scheduler.maxAttempts,
+        retryBackoffMs: scheduler.retryBackoffMs,
+        maxRetryBackoffMs: scheduler.maxRetryBackoffMs,
+        owner: `fable-scheduler-${process.pid}`,
+      },
+      this.#work,
+      this.persistence,
+      this.events,
+      (request) => this.startRun(request),
+    );
   }
 }
 

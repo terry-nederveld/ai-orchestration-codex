@@ -144,6 +144,42 @@ export const fableConfigSchema = z.object({
   concurrency: z.object({ workflowSteps: z.number().int().positive().default(4) }).default({
     workflowSteps: 4,
   }),
+  scheduler: z
+    .object({
+      enabled: z.boolean().default(false),
+      pollIntervalMs: z.number().int().min(1_000).max(86_400_000).default(30_000),
+      maxConcurrentRuns: z.number().int().positive().max(100).default(2),
+      maxAttempts: z.number().int().positive().max(20).default(3),
+      retryBackoffMs: z.number().int().min(100).max(86_400_000).default(5_000),
+      maxRetryBackoffMs: z.number().int().min(100).max(604_800_000).default(300_000),
+      sources: z
+        .array(
+          z.object({
+            id: z.string().regex(/^[a-z][a-z0-9_-]*$/),
+            workProvider: z.string().min(1),
+            workflow: z.string().min(1),
+            query: z
+              .object({
+                project: z.string().optional(),
+                states: z.array(z.string()).optional(),
+                labels: z.array(z.string()).optional(),
+                assignee: z.string().optional(),
+                limit: z.number().int().positive().max(100).optional(),
+              })
+              .default({}),
+          }),
+        )
+        .default([]),
+    })
+    .default({
+      enabled: false,
+      pollIntervalMs: 30_000,
+      maxConcurrentRuns: 2,
+      maxAttempts: 3,
+      retryBackoffMs: 5_000,
+      maxRetryBackoffMs: 300_000,
+      sources: [],
+    }),
 });
 
 export type FableConfig = z.infer<typeof fableConfigSchema>;

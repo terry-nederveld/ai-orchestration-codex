@@ -62,6 +62,40 @@ program
     await withRuntime(async (runtime) => output({ providers: await runtime.providerStatuses() }));
   });
 
+program
+  .command("status")
+  .description("show local orchestration and scheduler status")
+  .action(async () => {
+    await withRuntime(async (runtime) => {
+      const runs = await runtime.listRuns();
+      output({
+        scheduler: runtime.schedulerStatus(),
+        runs: {
+          total: runs.length,
+          active: runs.filter((run) =>
+            ["QUEUED", "PREPARING", "RUNNING", "WAITING_FOR_TOOL", "VERIFYING"].includes(
+              run.status,
+            ),
+          ).length,
+        },
+      });
+    });
+  });
+
+const scheduler = program.command("scheduler").description("inspect or trigger work polling");
+scheduler.command("status").action(async () => {
+  await withRuntime(async (runtime) => output({ scheduler: runtime.schedulerStatus() }));
+});
+scheduler
+  .command("poll")
+  .description("run one configured discovery and dispatch cycle")
+  .action(async () => {
+    await withRuntime(async (runtime) => {
+      await runtime.runSchedulerOnce();
+      output({ scheduler: runtime.schedulerStatus() });
+    });
+  });
+
 const work = program.command("work").description("discover work items");
 work
   .command("list")

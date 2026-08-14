@@ -1,4 +1,4 @@
-import type { AgentRun, ApprovalRecord, ProviderStatus } from "../app/types.js";
+import type { AgentRun, ApprovalRecord, ProviderStatus, SchedulerStatus } from "../app/types.js";
 import { formatRelativeDate } from "../app/format.js";
 import { Button, EmptyState, MetricCard, Panel, StatusPill } from "../components/ui.js";
 
@@ -6,11 +6,13 @@ export function Dashboard({
   runs,
   providers,
   approvals,
+  scheduler,
   onNavigate,
 }: {
   runs: AgentRun[];
   providers: ProviderStatus[];
   approvals: ApprovalRecord[];
+  scheduler: SchedulerStatus;
   onNavigate: (view: string) => void;
 }) {
   const active = runs.filter((run) => activeStatuses.has(run.status));
@@ -40,7 +42,11 @@ export function Dashboard({
         <MetricCard
           label="Active runs"
           value={active.length}
-          note="executing or verifying"
+          note={
+            scheduler.running
+              ? `scheduler online · ${scheduler.activeRuns} dispatched`
+              : "scheduler paused"
+          }
           tone="blue"
           icon="activity"
         />

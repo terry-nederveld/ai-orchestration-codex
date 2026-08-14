@@ -5,6 +5,7 @@ import type {
   DomainEvent,
   ProviderStatus,
   Snapshot,
+  SchedulerStatus,
   WorkItem,
   WorkflowDefinition,
 } from "./types.js";
@@ -17,17 +18,19 @@ export class FableClient {
   public constructor(private readonly connection: ControlPlaneConnection) {}
 
   public async snapshot(signal?: AbortSignal): Promise<Snapshot> {
-    const [providers, runs, workflows, approvals] = await Promise.all([
+    const [providers, runs, workflows, approvals, scheduler] = await Promise.all([
       this.request<{ providers: ProviderStatus[] }>("/api/providers", withSignal(signal)),
       this.request<{ runs: AgentRun[] }>("/api/runs", withSignal(signal)),
       this.request<{ workflows: WorkflowDefinition[] }>("/api/workflows", withSignal(signal)),
       this.request<{ approvals: ApprovalRecord[] }>("/api/approvals", withSignal(signal)),
+      this.request<{ scheduler: SchedulerStatus }>("/api/scheduler", withSignal(signal)),
     ]);
     return {
       providers: providers.providers,
       runs: runs.runs,
       workflows: workflows.workflows,
       approvals: approvals.approvals,
+      scheduler: scheduler.scheduler,
     };
   }
 

@@ -31,6 +31,18 @@ work:
 
 workflows:
   - workflows/software-development.yaml
+
+scheduler:
+  enabled: false
+  pollIntervalMs: 30000
+  maxConcurrentRuns: 2
+  sources:
+    - id: github-ready
+      workProvider: github-issues:your-organization/your-repository
+      workflow: software-development
+      query:
+        states: [open]
+        labels: [agent-ready]
 `;
 
 export const initialWorkflow = `schemaVersion: 1

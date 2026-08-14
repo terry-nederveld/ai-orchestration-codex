@@ -34,6 +34,15 @@ describe("ControlPlaneServer", () => {
         mcp: [],
         sourceControl: { githubSecret: "github.token" },
         concurrency: { workflowSteps: 4 },
+        scheduler: {
+          enabled: false,
+          pollIntervalMs: 30_000,
+          maxConcurrentRuns: 2,
+          maxAttempts: 3,
+          retryBackoffMs: 5_000,
+          maxRetryBackoffMs: 300_000,
+          sources: [],
+        },
       },
     };
     const runtime = await FableRuntime.create(config);

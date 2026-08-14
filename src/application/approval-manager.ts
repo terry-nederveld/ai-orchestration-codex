@@ -80,4 +80,14 @@ export class ApprovalManager implements ApprovalProvider {
     }
     return true;
   }
+
+  public async reconcileInterrupted(): Promise<number> {
+    const records = await this.persistence.entities.list<ApprovalRecord>("approval");
+    let reconciled = 0;
+    for (const record of records) {
+      if (record.value.status !== "pending") continue;
+      if (await this.resolve(record.id, "timed_out")) reconciled += 1;
+    }
+    return reconciled;
+  }
 }

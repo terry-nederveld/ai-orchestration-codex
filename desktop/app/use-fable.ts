@@ -3,7 +3,13 @@ import { FableClient } from "./client.js";
 import { connectControlPlane } from "./connection.js";
 import type { ControlPlaneConnection, Snapshot } from "./types.js";
 
-const emptySnapshot: Snapshot = { providers: [], runs: [], workflows: [], approvals: [] };
+const emptySnapshot: Snapshot = {
+  providers: [],
+  runs: [],
+  workflows: [],
+  approvals: [],
+  scheduler: { running: false, activeRuns: 0, maxConcurrentRuns: 0 },
+};
 
 export interface FableData {
   connection?: ControlPlaneConnection;

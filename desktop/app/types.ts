@@ -123,9 +123,19 @@ export interface ControlPlaneConnection {
   configPath?: string;
 }
 
+export interface SchedulerStatus {
+  running: boolean;
+  activeRuns: number;
+  maxConcurrentRuns: number;
+  lastPollAt?: string;
+  nextPollAt?: string;
+  lastError?: string;
+}
+
 export interface Snapshot {
   providers: ProviderStatus[];
   runs: AgentRun[];
   workflows: WorkflowDefinition[];
   approvals: ApprovalRecord[];
+  scheduler: SchedulerStatus;
 }

@@ -151,6 +151,7 @@ export function App() {
             runs={fable.snapshot.runs}
             providers={fable.snapshot.providers}
             approvals={fable.snapshot.approvals}
+            scheduler={fable.snapshot.scheduler}
             onNavigate={navigate}
           />
         );
@@ -202,6 +203,7 @@ export function App() {
             runs={fable.snapshot.runs}
             providers={fable.snapshot.providers}
             approvals={fable.snapshot.approvals}
+            scheduler={fable.snapshot.scheduler}
             onNavigate={navigate}
           />
         );

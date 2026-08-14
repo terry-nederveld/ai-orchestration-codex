@@ -51,6 +51,7 @@ export class ControlPlaneServer {
   }
 
   public async start(): Promise<ControlPlaneAddress> {
+    await this.#runtime.startServices();
     await new Promise<void>((resolve, reject) => {
       this.#server.once("error", reject);
       this.#server.listen(this.#port, this.#host, () => {
@@ -123,6 +124,25 @@ export class ControlPlaneServer {
   async #route(request: IncomingMessage, response: ServerResponse, url: URL): Promise<void> {
     if (request.method === "GET" && url.pathname === "/api/providers") {
       sendJson(response, 200, { providers: await this.#runtime.providerStatuses() });
+      return;
+    }
+    if (request.method === "GET" && url.pathname === "/api/scheduler") {
+      sendJson(response, 200, { scheduler: this.#runtime.schedulerStatus() });
+      return;
+    }
+    if (request.method === "POST" && url.pathname === "/api/scheduler/start") {
+      await this.#runtime.startScheduler();
+      sendJson(response, 200, { scheduler: this.#runtime.schedulerStatus() });
+      return;
+    }
+    if (request.method === "POST" && url.pathname === "/api/scheduler/stop") {
+      await this.#runtime.stopScheduler();
+      sendJson(response, 200, { scheduler: this.#runtime.schedulerStatus() });
+      return;
+    }
+    if (request.method === "POST" && url.pathname === "/api/scheduler/poll") {
+      await this.#runtime.runSchedulerOnce();
+      sendJson(response, 200, { scheduler: this.#runtime.schedulerStatus() });
       return;
     }
     if (request.method === "GET" && url.pathname === "/api/workflows") {

@@ -19,6 +19,7 @@ describe("Dashboard", () => {
             createdAt: new Date().toISOString(),
           },
         ]}
+        scheduler={{ running: true, activeRuns: 1, maxConcurrentRuns: 2 }}
         providers={[
           {
             descriptor: {
