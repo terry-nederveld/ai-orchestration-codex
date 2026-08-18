@@ -9,7 +9,7 @@
 5. Review pending approvals and retained failed workspaces before retrying delivery.
 6. Use `fable runs show <id>` for the durable event timeline and terminal outcome.
 
-The scheduler owns one deterministic dispatch per configured source/work item, respects `maxConcurrentRuns`, and applies bounded exponential retry. Manual `scheduler poll` runs one cycle without leaving a background process. `serve` starts recovery and configured continuous polling.
+The scheduler owns one deterministic dispatch per source/work item, preserves native rank, applies lane/WIP policy, and uses bounded retry. Persisted recurring triggers are polled by `serve` and dispatch through the same engine. Manual `scheduler poll` runs one backlog cycle.
 
 ## State and backup
 
@@ -18,9 +18,9 @@ The default project state lives under `.fable`: SQLite plus WAL files, managed w
 ## Failure behavior
 
 - Provider 429/5xx and classified transient failures retry within configured bounds.
-- Interrupted active runs become failed on restart rather than silently resuming unsafe side effects.
+- Runs at a durable wait checkpoint remain waiting across restart. Interrupted execution without a safe checkpoint fails rather than silently replaying effects.
 - Interrupted scheduler dispatches retry or exhaust based on their attempt count.
-- Pending approvals become timed out on recovery.
+- Typed human requests and generic wait conditions remain durable; the first authorized response resumes the exact pinned node.
 - Failed workflows retain workspaces when `retainOnFailure: true`; successful owned workspaces are cleaned up.
 - Claim release, work transition, and cleanup failures emit distinct events so the primary outcome is not hidden.
 - Cancellation propagates through workflow, model/agent, MCP, and process abort signals.
@@ -45,7 +45,11 @@ Check scheduler `enabled`, source provider/workflow IDs, trigger state, required
 
 ### A run waits forever
 
-Check Approvals for a pending human gate, agent/process timeout settings, provider account limits, and terminal events. Cancel from the desktop or API if needed. A process restart converts active ambiguous work into an explicit failure for safe operator review.
+Check **Needs Your Input** for an approval or typed request, inspect the wait/checkpoint, then verify provider limits and terminal events. A restart preserves declared waits. Non-checkpointed active work fails closed.
+
+### Resume cannot find coding progress
+
+Inspect the recorded branch and checkpoint SHA. Fable reconstructs a missing local workspace from the remote branch and refuses force-push collisions. If the branch was deleted externally, restore it from the remote provider or recorded SHA before resuming.
 
 ### Workspace cleanup is refused
 

@@ -45,10 +45,22 @@ scheduler:
     - id: github-ready
       workProvider: github-issues:acme/storefront
       workflow: software-development
+      policy: ranked_parallel
+      wipLimit: 2
       query:
         states: [open]
         labels: [agent-ready]
         limit: 50
+
+recurring:
+  - id: weekly-support
+    workProvider: jira-cloud:https://acme.atlassian.net
+    externalId: OUTCOME-1
+    workflow: autonomous-discovery
+    everyMs: 604800000
+    startAt: 2026-08-24T09:00:00Z
+    variables:
+      stopAfter: prd
 ```
 
 ## Top-level fields
@@ -61,12 +73,15 @@ scheduler:
 | `models`                                     | Direct OpenAI, Anthropic, OpenRouter/OpenAI-compatible, or local endpoints.   |
 | `agents`                                     | Codex SDK, Claude Code CLI, or GitHub Copilot SDK sessions.                   |
 | `work`                                       | GitHub Issues, Jira Cloud/Data Center, or Linear sources.                     |
-| `workflows`                                  | Relative paths to version-1 workflow documents.                               |
+| `workflows`                                  | Relative paths to immutable workflow documents.                               |
 | `extensions`                                 | Discovery paths plus exact per-extension capability grants.                   |
 | `mcp`                                        | Stdio or Streamable HTTP server definitions.                                  |
 | `sourceControl`                              | GitHub API base URL and secret reference for pull requests.                   |
 | `concurrency.workflowSteps`                  | Maximum ready workflow steps executed concurrently.                           |
 | `scheduler`                                  | Polling, concurrency, retry, and source definitions.                          |
+| `recurring`                                  | Persisted interval triggers that dispatch through the same workflow engine.   |
+
+Scheduler sources accept `strict_serial`, `skip_blocked`, or `ranked_parallel` plus an optional lane `wipLimit`. Provider-native rank is canonical. Strict serial holds while waiting; skip-blocked may use capacity on another item; ranked parallel fills slots in order.
 
 ## Secret references
 
