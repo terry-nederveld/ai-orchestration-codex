@@ -7,8 +7,24 @@ export interface Identity {
   provider?: string;
 }
 
+export const workRelationshipTypes = [
+  "parent",
+  "child",
+  "blocks",
+  "blocked_by",
+  "depends_on",
+  "implements",
+  "derived_from",
+  "supported_by",
+  "tests",
+  "related_to",
+  "regression_of",
+] as const;
+
+export type WorkRelationshipType = (typeof workRelationshipTypes)[number];
+
 export interface WorkRelationship {
-  type: string;
+  type: WorkRelationshipType | (string & {});
   targetId: string;
 }
 
