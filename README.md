@@ -1,6 +1,6 @@
 # Fable
 
-Fable is a local-first, provider-neutral orchestration platform for autonomous software-delivery agents. It discovers eligible work in GitHub Issues, Jira Cloud, Jira Data Center, or Linear; claims it durably; creates an isolated workspace; runs a versioned workflow; and exposes progress, approvals, logs, budgets, and terminal outcomes through one CLI/control-plane/desktop stack.
+Fable is a local-first, provider-neutral autonomous work orchestrator. It coordinates delivery, discovery, experiments, deterministic gates, models and coding agents, repositories, tools, human judgment, recurring work, and independent local/remote runtimes. It discovers eligible work in GitHub Issues, Jira Cloud, Jira Data Center, or Linear; claims it durably; runs a pinned workflow graph; and exposes work-centric progress through one CLI/control-plane/desktop stack.
 
 The repository contains a strict TypeScript orchestration core, a loopback-only authenticated HTTP/SSE control plane, and a Tauri 2 desktop application. Packaged desktop builds embed the Node control plane as a supervised sidecar, so end users do not need Node.js.
 
@@ -51,7 +51,7 @@ npm run dev:desktop
 
 ## Operator surfaces
 
-- Desktop: dashboard, discovery, runs and event history, provider health, workflows, agents/projects, approval decisions, settings, and opt-in native terminal-state notifications.
+- Desktop: federated runtime/group views, work discovery, work-centric run state, newest-first events, typed human needs, provider health, visual/YAML workflow design, side-effect-free Evaluate, immutable workflow publication, and opt-in native notifications.
 - CLI: `init`, `validate`, `providers`, `agents list`, `workflows list`, `extensions list`, `status`, `scheduler status|poll`, `work list`, `run`, `runs list|show`, `approvals list|resolve`, `secrets set|delete`, and `serve`.
 - Local API: authenticated loopback HTTP plus resumable server-sent domain events. The desktop generates a new bearer token on every launch.
 
@@ -65,7 +65,7 @@ npm run build:sidecar
 cargo check --locked --manifest-path src-tauri/Cargo.toml
 ```
 
-The deterministic suite covers provider contracts, persistence, workflow compilation/execution, native agents, permissions, path containment, extension grants, MCP normalization, scheduler recovery, control-plane authentication, UI behavior, and a complete issue-to-code delivery flow.
+The deterministic suite covers provider contracts, immutable assets/specifications, durable waits/resume, Git recovery, repository/instruction/context resolution, gates/profiles/fallback, experiments/rubrics/judgment packages, joins, lanes/recurrence/releases, routing/Evaluate, federated UI behavior, both flagship journeys, and the original issue-to-code flow.
 
 ## Documentation
 
@@ -82,6 +82,6 @@ The deterministic suite covers provider contracts, persistence, workflow compila
 
 ## Current scope
 
-Fable v0.1 is designed for one trusted operator on one machine. It has a durable polling scheduler rather than a distributed queue. GitHub repository Issues are supported directly; GitHub Projects V2 field synchronization is not yet a dedicated provider. Native workflows run separate implementer/reviewer sessions, while provider-owned subagent delegation is available only when the selected external agent supports it. OS-keychain integration and an in-app auto-updater are intentionally deferred; credentials use environment lookup plus an authenticated encrypted vault, and updates are distributed as versioned platform artifacts.
+Fable v0.2 uses one connection identity per external system and keeps every runtime authoritative for its own credentials and state. The desktop can observe local and remote runtimes simultaneously; the shipped server remains loopback-only, so remote operation uses an HTTPS gateway or loopback tunnel. Dedicated GitHub Projects V2 field synchronization, fine-grained delegated enterprise identity, OS-keychain integration, and in-app auto-update remain later work.
 
 Licensed under the [MIT License](LICENSE).
