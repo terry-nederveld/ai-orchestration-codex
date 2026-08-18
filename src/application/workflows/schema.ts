@@ -29,10 +29,25 @@ const commonStep = {
   id: z.string().regex(/^[a-z][a-z0-9_-]*$/),
   name: z.string().min(1).optional(),
   dependsOn: z.array(z.string()).default([]),
+  join: z
+    .discriminatedUnion("mode", [
+      z.object({ mode: z.literal("all") }),
+      z.object({ mode: z.literal("any") }),
+      z.object({ mode: z.literal("minimum"), count: z.number().int().positive() }),
+      z.object({ mode: z.literal("named"), required: z.array(z.string()).min(1) }),
+    ])
+    .optional(),
   when: z.string().min(1).optional(),
   timeoutMs: z.number().int().positive().max(86_400_000).optional(),
   retry: retrySchema,
   repeat: repeatSchema.optional(),
+  outputSchema: z.record(jsonValueSchema).optional(),
+  onEnter: z
+    .array(z.object({ action: z.string().min(1), input: z.record(jsonValueSchema).default({}) }))
+    .default([]),
+  onExit: z
+    .array(z.object({ action: z.string().min(1), input: z.record(jsonValueSchema).default({}) }))
+    .default([]),
   onError: z.enum(["fail", "continue"]).default("fail"),
 };
 
@@ -70,6 +85,51 @@ const stepSchema = z.discriminatedUnion("type", [
     title: z.string().min(1),
     description: z.string().min(1),
   }),
+  z.object({
+    ...commonStep,
+    type: z.literal("human_input"),
+    inputType: z.enum([
+      "text",
+      "boolean",
+      "single_choice",
+      "multiple_choice",
+      "approval",
+      "secret",
+      "file_reference",
+      "free_form",
+    ]),
+    title: z.string().min(1),
+    description: z.string().min(1),
+    channel: z.enum(["app", "work_item", "both"]).default("app"),
+    required: z.boolean().default(true),
+    choices: z.array(z.string()).optional(),
+    secretDestination: z.string().optional(),
+  }),
+  z.object({
+    ...commonStep,
+    type: z.literal("wait"),
+    conditionType: z.enum([
+      "time",
+      "external_event",
+      "dependency",
+      "provider_availability",
+      "work_item_event",
+    ]),
+    predicate: z.record(jsonValueSchema).default({}),
+    until: z.string().datetime().optional(),
+  }),
+  z.object({
+    ...commonStep,
+    type: z.literal("subworkflow"),
+    workflow: z.object({
+      kind: z.literal("subworkflow"),
+      id: z.string().regex(/^[a-z][a-z0-9_-]*$/),
+      version: z.number().int().positive(),
+      digest: z.string().regex(/^[a-f0-9]{64}$/),
+    }),
+    input: z.record(jsonValueSchema).default({}),
+    failure: z.enum(["fail", "continue"]).default("fail"),
+  }),
 ]);
 
 const agentRoleSchema = z.object({
@@ -80,8 +140,10 @@ const agentRoleSchema = z.object({
 });
 
 export const workflowInputSchema = z.object({
-  schemaVersion: z.literal(1),
+  schemaVersion: z.union([z.literal(1), z.literal(2)]),
   id: z.string().regex(/^[a-z][a-z0-9_-]*$/),
+  version: z.number().int().positive().default(1),
+  lifecycle: z.enum(["DRAFT", "ENABLED", "DISABLED"]).default("ENABLED"),
   name: z.string().min(1),
   description: z.string().optional(),
   includes: z.array(z.string()).default([]),
@@ -99,16 +161,43 @@ export const workflowInputSchema = z.object({
     })
     .default({}),
   variables: z.record(jsonValueSchema).default({}),
+  domainStates: z.array(z.string()).default([]),
+  assets: z
+    .array(
+      z.object({
+        kind: z.enum([
+          "workflow",
+          "subworkflow",
+          "gate_set",
+          "rubric",
+          "agent_profile",
+          "policy",
+          "template",
+        ]),
+        id: z.string().regex(/^[a-z][a-z0-9_-]*$/),
+        version: z.number().int().positive(),
+        digest: z.string().regex(/^[a-f0-9]{64}$/),
+      }),
+    )
+    .default([]),
+  requirements: z
+    .object({
+      capabilities: z.array(z.enum(capabilities)).default([]),
+      providers: z.array(z.string()).default([]),
+      tools: z.array(z.string()).default([]),
+    })
+    .default({}),
+  configuration: z.record(jsonValueSchema).default({}),
   budgets: z
     .object({
       maxConcurrentAgents: z.number().int().positive().optional(),
       maxSubagentsPerRun: z.number().int().nonnegative().optional(),
-      maxIterations: z.number().int().positive().optional(),
-      maxWallClockMs: z.number().int().positive().optional(),
-      maxInputTokens: z.number().int().positive().optional(),
-      maxOutputTokens: z.number().int().positive().optional(),
-      maxEstimatedCostUsd: z.number().nonnegative().optional(),
-      maxSubscriptionRequests: z.number().int().nonnegative().optional(),
+      maxIterations: z.number().int().positive().max(1_000).optional(),
+      maxWallClockMs: z.number().int().positive().max(2_592_000_000).optional(),
+      maxInputTokens: z.number().int().positive().max(1_000_000_000).optional(),
+      maxOutputTokens: z.number().int().positive().max(1_000_000_000).optional(),
+      maxEstimatedCostUsd: z.number().nonnegative().max(1_000_000).optional(),
+      maxSubscriptionRequests: z.number().int().nonnegative().max(1_000_000).optional(),
     })
     .default({}),
   agents: z.record(agentRoleSchema).default({}),

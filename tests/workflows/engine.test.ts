@@ -109,4 +109,111 @@ describe("WorkflowEngine", () => {
     expect(result.steps["fails"]?.status).toBe("FAILED");
     expect(result.steps["blocked"]).toMatchObject({ status: "SKIPPED" });
   });
+
+  it("runs declared node lifecycle actions around the node exactly once", async () => {
+    const calls: string[] = [];
+    const registry = new WorkflowStepHandlerRegistry();
+    registry.register({
+      type: "command",
+      execute: async (step) => {
+        calls.push(step.id);
+        return { output: "done" };
+      },
+    });
+    registry.register({
+      type: "action",
+      execute: async (step) => {
+        calls.push(step.id);
+        return { output: step.type === "action" ? step.action : "unexpected" };
+      },
+    });
+    const workflow = compileWorkflow({
+      schemaVersion: 2,
+      id: "lifecycle-test",
+      name: "Lifecycle test",
+      steps: [
+        {
+          id: "build",
+          type: "command",
+          command: "build",
+          onEnter: [{ action: "mark_started", input: {} }],
+          onExit: [{ action: "mark_finished", input: {} }],
+        },
+      ],
+    });
+
+    const result = await new WorkflowEngine(registry, new InMemoryEventBus()).execute({
+      runId: "run-lifecycle",
+      workflow,
+    });
+
+    expect(result.status).toBe("SUCCEEDED");
+    expect(calls).toEqual(["build_on_enter_1", "build", "build_on_exit_1"]);
+    expect(result.steps["build"]).toMatchObject({ entered: true, exited: true });
+  });
+
+  it("uses declared fan-in semantics instead of requiring every branch", async () => {
+    const registry = new WorkflowStepHandlerRegistry();
+    registry.register({
+      type: "command",
+      execute: async (step) => {
+        if (step.id === "rejected") throw new StepExecutionError("candidate killed");
+        return { output: step.id };
+      },
+    });
+    const workflow = compileWorkflow({
+      schemaVersion: 2,
+      id: "join-test",
+      name: "Join test",
+      steps: [
+        { id: "survivor", type: "command", command: "survive" },
+        { id: "rejected", type: "command", command: "reject", onError: "continue" },
+        {
+          id: "advance",
+          type: "command",
+          command: "advance",
+          dependsOn: ["survivor", "rejected"],
+          join: { mode: "any" },
+        },
+      ],
+    });
+
+    const result = await new WorkflowEngine(registry, new InMemoryEventBus()).execute({
+      runId: "run-join",
+      workflow,
+    });
+
+    expect(result.status).toBe("SUCCEEDED");
+    expect(result.steps["rejected"]?.status).toBe("FAILED");
+    expect(result.steps["advance"]?.status).toBe("SUCCEEDED");
+  });
+
+  it("rejects node output that violates its declared structured contract", async () => {
+    const registry = new WorkflowStepHandlerRegistry();
+    registry.register({ type: "command", execute: async () => ({ output: { ready: "yes" } }) });
+    const workflow = compileWorkflow({
+      schemaVersion: 2,
+      id: "output-contract",
+      name: "Output contract",
+      steps: [
+        {
+          id: "inspect",
+          type: "command",
+          command: "inspect",
+          outputSchema: {
+            type: "object",
+            required: ["ready"],
+            properties: { ready: { type: "boolean" } },
+          },
+        },
+      ],
+    });
+
+    const result = await new WorkflowEngine(registry, new InMemoryEventBus()).execute({
+      runId: "run-output-contract",
+      workflow,
+    });
+    expect(result.status).toBe("FAILED");
+    expect(result.steps["inspect"]?.error).toMatch(/ready.*boolean/i);
+  });
 });

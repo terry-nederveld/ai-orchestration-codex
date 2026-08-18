@@ -4,6 +4,7 @@ import type { WorkItem } from "../domain/work.js";
 
 export interface WorkflowStepContext {
   runId: string;
+  stepId: string;
   workflow: WorkflowDefinition;
   workItem?: WorkItem;
   workspacePath?: string;

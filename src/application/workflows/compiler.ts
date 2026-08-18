@@ -2,9 +2,12 @@ import { ConfigurationError } from "../../domain/errors.js";
 import type { JsonObject } from "../../domain/json.js";
 import type { WorkflowDefinition, WorkflowStep } from "../../domain/workflows.js";
 import { workflowInputSchema } from "./schema.js";
+import type { VersionedAssetReference } from "../../domain/assets.js";
+import { contentDigest } from "../versioned-assets.js";
 
 export interface CompiledWorkflow {
   definition: WorkflowDefinition;
+  reference: VersionedAssetReference;
   stepsById: ReadonlyMap<string, WorkflowStep>;
   dependents: ReadonlyMap<string, ReadonlySet<string>>;
   topologicalOrder: string[];
@@ -25,6 +28,20 @@ export function compileWorkflow(input: unknown): CompiledWorkflow {
     if (step.type === "agent" && definition.agents[step.agent] === undefined) {
       throw new ConfigurationError(`Step ${step.id} references unknown agent role: ${step.agent}`);
     }
+    if (
+      step.type === "subworkflow" &&
+      !definition.assets.some(
+        (asset) =>
+          asset.kind === step.workflow.kind &&
+          asset.id === step.workflow.id &&
+          asset.version === step.workflow.version &&
+          asset.digest === step.workflow.digest,
+      )
+    ) {
+      throw new ConfigurationError(
+        `Step ${step.id} references an unpinned subworkflow: ${step.workflow.id}@${step.workflow.version}`,
+      );
+    }
   }
 
   const dependents = new Map<string, Set<string>>();
@@ -37,10 +54,27 @@ export function compileWorkflow(input: unknown): CompiledWorkflow {
       values.add(step.id);
       dependents.set(dependency, values);
     }
+    if (step.join?.mode === "minimum" && step.join.count > step.dependsOn.length) {
+      throw new ConfigurationError(`Step ${step.id} minimum join exceeds its dependencies`);
+    }
+    if (step.join?.mode === "named") {
+      const unknown = step.join.required.find((id) => !step.dependsOn.includes(id));
+      if (unknown !== undefined) {
+        throw new ConfigurationError(
+          `Step ${step.id} named join references ${unknown} outside dependsOn`,
+        );
+      }
+    }
   }
 
   const topologicalOrder = topologicalSort(definition.steps, dependents);
-  return { definition, stepsById, dependents, topologicalOrder };
+  const reference: VersionedAssetReference = {
+    kind: "workflow",
+    id: definition.id,
+    version: definition.version,
+    digest: contentDigest(JSON.parse(JSON.stringify(definition)) as JsonObject),
+  };
+  return { definition, reference, stepsById, dependents, topologicalOrder };
 }
 
 function topologicalSort(steps: WorkflowStep[], dependents: Map<string, Set<string>>): string[] {

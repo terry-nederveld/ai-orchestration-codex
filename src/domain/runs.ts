@@ -5,6 +5,7 @@ export const runStatuses = [
   "QUEUED",
   "PREPARING",
   "RUNNING",
+  "WAITING",
   "WAITING_FOR_TOOL",
   "WAITING_FOR_SUBAGENT",
   "WAITING_FOR_HUMAN",
@@ -21,6 +22,7 @@ const allowedTransitions: Readonly<Record<RunStatus, ReadonlySet<RunStatus>>> = 
   QUEUED: new Set(["PREPARING", "CANCELLED"]),
   PREPARING: new Set(["RUNNING", "FAILED", "BLOCKED", "CANCELLED"]),
   RUNNING: new Set([
+    "WAITING",
     "WAITING_FOR_TOOL",
     "WAITING_FOR_SUBAGENT",
     "WAITING_FOR_HUMAN",
@@ -30,6 +32,7 @@ const allowedTransitions: Readonly<Record<RunStatus, ReadonlySet<RunStatus>>> = 
     "BLOCKED",
     "CANCELLED",
   ]),
+  WAITING: new Set(["RUNNING", "FAILED", "BLOCKED", "CANCELLED"]),
   WAITING_FOR_TOOL: new Set(["RUNNING", "FAILED", "BLOCKED", "CANCELLED"]),
   WAITING_FOR_SUBAGENT: new Set(["RUNNING", "FAILED", "BLOCKED", "CANCELLED"]),
   WAITING_FOR_HUMAN: new Set(["RUNNING", "BLOCKED", "CANCELLED"]),
@@ -64,9 +67,24 @@ export interface AgentRun {
   id: string;
   workItemId: string;
   workflowId: string;
+  workflowVersion?: number;
+  workflowDigest?: string;
+  workflowSnapshotId?: string;
+  workflowVariables?: JsonObject;
   goal: string;
   status: RunStatus;
   currentStepId?: string;
+  graphPosition?: {
+    activeNodeIds: string[];
+    completedNodeIds: string[];
+    checkpoint: number;
+  };
+  domainState?: string;
+  externalState?: string;
+  executionSpecRevision?: number;
+  repositoryBranch?: string;
+  checkpointSha?: string;
+  releaseState?: string;
   workspacePath?: string;
   providerId?: string;
   model?: string;

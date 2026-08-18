@@ -6,8 +6,10 @@
   "additionalProperties": false,
   "required": ["schemaVersion", "id", "name", "steps"],
   "properties": {
-    "schemaVersion": { "const": 1 },
+    "schemaVersion": { "enum": [1, 2] },
     "id": { "type": "string", "pattern": "^[a-z][a-z0-9_-]*$" },
+    "version": { "type": "integer", "minimum": 1, "default": 1 },
+    "lifecycle": { "enum": ["DRAFT", "ENABLED", "DISABLED"], "default": "ENABLED" },
     "name": { "type": "string", "minLength": 1 },
     "description": { "type": "string" },
     "includes": {
@@ -41,6 +43,22 @@
       }
     },
     "variables": { "type": "object" },
+    "domainStates": { "type": "array", "items": { "type": "string" }, "default": [] },
+    "assets": {
+      "type": "array",
+      "default": [],
+      "items": { "$ref": "#/$defs/assetReference" }
+    },
+    "requirements": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "capabilities": { "type": "array", "items": { "type": "string" } },
+        "providers": { "type": "array", "items": { "type": "string" } },
+        "tools": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "configuration": { "type": "object", "default": {} },
     "budgets": { "$ref": "#/$defs/budgets" },
     "agents": {
       "type": "object",
@@ -62,6 +80,27 @@
     }
   },
   "$defs": {
+    "assetReference": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "id", "version", "digest"],
+      "properties": {
+        "kind": {
+          "enum": [
+            "workflow",
+            "subworkflow",
+            "gate_set",
+            "rubric",
+            "agent_profile",
+            "policy",
+            "template"
+          ]
+        },
+        "id": { "type": "string", "pattern": "^[a-z][a-z0-9_-]*$" },
+        "version": { "type": "integer", "minimum": 1 },
+        "digest": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
+      }
+    },
     "budgets": {
       "type": "object",
       "additionalProperties": false,
@@ -135,11 +174,65 @@
         "id": { "type": "string", "pattern": "^[a-z][a-z0-9_-]*$" },
         "name": { "type": "string", "minLength": 1 },
         "dependsOn": { "type": "array", "items": { "type": "string" } },
+        "join": {
+          "oneOf": [
+            {
+              "type": "object",
+              "required": ["mode"],
+              "properties": { "mode": { "const": "all" } }
+            },
+            {
+              "type": "object",
+              "required": ["mode"],
+              "properties": { "mode": { "const": "any" } }
+            },
+            {
+              "type": "object",
+              "required": ["mode", "count"],
+              "properties": {
+                "mode": { "const": "minimum" },
+                "count": { "type": "integer", "minimum": 1 }
+              }
+            },
+            {
+              "type": "object",
+              "required": ["mode", "required"],
+              "properties": {
+                "mode": { "const": "named" },
+                "required": {
+                  "type": "array",
+                  "minItems": 1,
+                  "items": { "type": "string" }
+                }
+              }
+            }
+          ]
+        },
         "when": { "type": "string", "minLength": 1 },
         "timeoutMs": { "type": "integer", "minimum": 1 },
         "retry": { "$ref": "#/$defs/retry" },
         "repeat": { "$ref": "#/$defs/repeat" },
+        "outputSchema": { "type": "object" },
+        "onEnter": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/lifecycleAction" },
+          "default": []
+        },
+        "onExit": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/lifecycleAction" },
+          "default": []
+        },
         "onError": { "enum": ["fail", "continue"] }
+      }
+    },
+    "lifecycleAction": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["action"],
+      "properties": {
+        "action": { "type": "string", "minLength": 1 },
+        "input": { "type": "object", "default": {} }
       }
     },
     "step": {
@@ -208,6 +301,71 @@
                 "type": { "const": "approval" },
                 "title": { "type": "string" },
                 "description": { "type": "string" }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            { "$ref": "#/$defs/commonStep" },
+            {
+              "required": ["inputType", "title", "description"],
+              "properties": {
+                "type": { "const": "human_input" },
+                "inputType": {
+                  "enum": [
+                    "text",
+                    "boolean",
+                    "single_choice",
+                    "multiple_choice",
+                    "approval",
+                    "secret",
+                    "file_reference",
+                    "free_form"
+                  ]
+                },
+                "title": { "type": "string", "minLength": 1 },
+                "description": { "type": "string", "minLength": 1 },
+                "channel": { "enum": ["app", "work_item", "both"] },
+                "required": { "type": "boolean" },
+                "choices": { "type": "array", "items": { "type": "string" } },
+                "secretDestination": { "type": "string" }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            { "$ref": "#/$defs/commonStep" },
+            {
+              "required": ["conditionType"],
+              "properties": {
+                "type": { "const": "wait" },
+                "conditionType": {
+                  "enum": [
+                    "time",
+                    "external_event",
+                    "dependency",
+                    "provider_availability",
+                    "work_item_event"
+                  ]
+                },
+                "predicate": { "type": "object" },
+                "until": { "type": "string", "format": "date-time" }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            { "$ref": "#/$defs/commonStep" },
+            {
+              "required": ["workflow"],
+              "properties": {
+                "type": { "const": "subworkflow" },
+                "workflow": { "$ref": "#/$defs/assetReference" },
+                "input": { "type": "object" },
+                "failure": { "enum": ["fail", "continue"] }
               }
             }
           ]

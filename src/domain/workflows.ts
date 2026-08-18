@@ -2,6 +2,8 @@ import type { BudgetLimits } from "./budgets.js";
 import type { Capability } from "./capabilities.js";
 import type { JsonObject, JsonValue } from "./json.js";
 import type { WorkspaceStrategy } from "../ports/workspace.js";
+import type { VersionedAssetReference, WorkflowLifecycle } from "./assets.js";
+import type { HumanInputType } from "./execution.js";
 
 export interface RetryPolicy {
   maxAttempts: number;
@@ -14,14 +16,29 @@ export interface RepeatPolicy {
   maxIterations: number;
 }
 
+export interface NodeLifecycleAction {
+  action: string;
+  input: JsonObject;
+}
+
+export type DependencyJoin =
+  | { mode: "all" }
+  | { mode: "any" }
+  | { mode: "minimum"; count: number }
+  | { mode: "named"; required: string[] };
+
 export interface WorkflowStepBase {
   id: string;
   name?: string;
   dependsOn: string[];
+  join?: DependencyJoin;
   when?: string;
   timeoutMs?: number;
   retry: RetryPolicy;
   repeat?: RepeatPolicy;
+  outputSchema?: JsonObject;
+  onEnter?: NodeLifecycleAction[];
+  onExit?: NodeLifecycleAction[];
   onError: "fail" | "continue";
 }
 
@@ -58,12 +75,41 @@ export interface ApprovalWorkflowStep extends WorkflowStepBase {
   description: string;
 }
 
+export interface HumanInputWorkflowStep extends WorkflowStepBase {
+  type: "human_input";
+  inputType: HumanInputType;
+  title: string;
+  description: string;
+  channel: "app" | "work_item" | "both";
+  required: boolean;
+  choices?: string[];
+  secretDestination?: string;
+}
+
+export interface WaitWorkflowStep extends WorkflowStepBase {
+  type: "wait";
+  conditionType:
+    "time" | "external_event" | "dependency" | "provider_availability" | "work_item_event";
+  predicate: JsonObject;
+  until?: string;
+}
+
+export interface SubworkflowWorkflowStep extends WorkflowStepBase {
+  type: "subworkflow";
+  workflow: VersionedAssetReference;
+  input: JsonObject;
+  failure: "fail" | "continue";
+}
+
 export type WorkflowStep =
   | AgentWorkflowStep
   | CommandWorkflowStep
   | ToolWorkflowStep
   | ActionWorkflowStep
-  | ApprovalWorkflowStep;
+  | ApprovalWorkflowStep
+  | HumanInputWorkflowStep
+  | WaitWorkflowStep
+  | SubworkflowWorkflowStep;
 
 export interface AgentRole {
   provider?: string;
@@ -73,8 +119,10 @@ export interface AgentRole {
 }
 
 export interface WorkflowDefinition {
-  schemaVersion: 1;
+  schemaVersion: 1 | 2;
   id: string;
+  version: number;
+  lifecycle: WorkflowLifecycle;
   name: string;
   description?: string;
   includes: string[];
@@ -85,6 +133,14 @@ export interface WorkflowDefinition {
     retainOnFailure: boolean;
   };
   variables: JsonObject;
+  domainStates: string[];
+  assets: VersionedAssetReference[];
+  requirements: {
+    capabilities: Capability[];
+    providers: string[];
+    tools: string[];
+  };
+  configuration: JsonObject;
   budgets: BudgetLimits;
   agents: Record<string, AgentRole>;
   steps: WorkflowStep[];
@@ -100,6 +156,7 @@ export const workflowStepStatuses = [
   "RUNNING",
   "SUCCEEDED",
   "FAILED",
+  "WAITING",
   "SKIPPED",
   "CANCELLED",
 ] as const;
@@ -113,6 +170,9 @@ export interface WorkflowStepExecution {
   iterations: number;
   output?: JsonValue;
   error?: string;
+  waitConditionId?: string;
+  entered?: boolean;
+  exited?: boolean;
   startedAt?: string;
   completedAt?: string;
 }
@@ -120,9 +180,13 @@ export interface WorkflowStepExecution {
 export interface WorkflowExecutionResult {
   workflowId: string;
   runId: string;
-  status: "SUCCEEDED" | "FAILED" | "CANCELLED";
+  workflowVersion: number;
+  workflowDigest: string;
+  status: "SUCCEEDED" | "FAILED" | "CANCELLED" | "WAITING";
   steps: Record<string, WorkflowStepExecution>;
   outputs: JsonObject;
   startedAt: string;
-  completedAt: string;
+  completedAt?: string;
+  updatedAt: string;
+  waitConditionIds?: string[];
 }
