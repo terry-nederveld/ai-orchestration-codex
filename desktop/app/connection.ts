@@ -27,7 +27,7 @@ export function saveConnection(
   const connections = loadConnections().filter((value) => value.id !== id);
   connections.push(normalizeConnection(connection, id));
   saveConnections(connections);
-  if (!isTauri()) localStorage.setItem(legacyStorageKey, JSON.stringify(connection));
+  if (!isTauri()) window.localStorage.setItem(legacyStorageKey, JSON.stringify(connection));
 }
 
 export function saveConnections(connections: ControlPlaneConnection[]): void {
@@ -44,12 +44,12 @@ export function loadConnections(): ControlPlaneConnection[] {
     return (JSON.parse(value) as ControlPlaneConnection[]).map((item) =>
       normalizeConnection(item, item.id),
     );
-  const legacy = localStorage.getItem(legacyStorageKey);
+  const legacy = window.localStorage.getItem(legacyStorageKey);
   if (legacy === null) return [];
   const parsed = JSON.parse(legacy) as { url: string; token: string; configPath?: string };
   const migrated = normalizeConnection(parsed, "default");
   saveConnections([migrated]);
-  localStorage.removeItem(legacyStorageKey);
+  window.localStorage.removeItem(legacyStorageKey);
   return [migrated];
 }
 
@@ -80,5 +80,5 @@ function isTauri(): boolean {
 }
 
 function connectionStorage(): Storage {
-  return isTauri() ? sessionStorage : localStorage;
+  return isTauri() ? window.sessionStorage : window.localStorage;
 }
