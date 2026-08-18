@@ -3,7 +3,7 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import type { AddressInfo } from "node:net";
 import type { DomainEvent } from "../domain/events.js";
 import type { JsonObject } from "../domain/json.js";
-import type { WorkQuery } from "../domain/work.js";
+import type { WorkItem, WorkQuery } from "../domain/work.js";
 import { isJsonObject } from "../adapters/model/http-support.js";
 import type { FableRuntime } from "../composition/runtime.js";
 
@@ -106,7 +106,7 @@ export class ControlPlaneServer {
       }
       const url = new URL(request.url ?? "/", `http://${request.headers.host ?? "localhost"}`);
       if (request.method === "GET" && url.pathname === "/health") {
-        sendJson(response, 200, { status: "ok", version: "0.1.0" });
+        sendJson(response, 200, { status: "ok", version: "0.2.0" });
         return;
       }
       if (!this.#authorized(request)) {
@@ -148,9 +148,34 @@ export class ControlPlaneServer {
       sendJson(response, 200, { scheduler: this.#runtime.schedulerStatus() });
       return;
     }
+    if (request.method === "GET" && url.pathname === "/api/recurring") {
+      sendJson(response, 200, { recurring: await this.#runtime.recurringStatus() });
+      return;
+    }
+    if (request.method === "POST" && url.pathname === "/api/recurring/poll") {
+      sendJson(response, 200, { dispatched: await this.#runtime.runRecurringOnce() });
+      return;
+    }
     if (request.method === "GET" && url.pathname === "/api/workflows") {
       sendJson(response, 200, {
         workflows: this.#runtime.workflowDefinitions(),
+      });
+      return;
+    }
+    if (request.method === "POST" && url.pathname === "/api/workflows") {
+      const body = await readObjectBody(request);
+      sendJson(response, 201, {
+        workflow: await this.#runtime.publishWorkflowDefinition(body["definition"]),
+      });
+      return;
+    }
+    if (request.method === "POST" && url.pathname === "/api/workflows/evaluate") {
+      const body = await readObjectBody(request);
+      sendJson(response, 200, {
+        evaluation: await this.#runtime.evaluateWorkflowDefinition({
+          definition: body["definition"],
+          workItem: workItemFrom(body["workItem"]),
+        }),
       });
       return;
     }
@@ -189,6 +214,7 @@ export class ControlPlaneServer {
         externalId: requiredString(body, "externalId"),
         workflowId: requiredString(body, "workflowId"),
         ...(typeof body["owner"] === "string" ? { owner: body["owner"] } : {}),
+        ...(isJsonObject(body["variables"]) ? { variables: body["variables"] } : {}),
       });
       sendJson(response, 202, { runId: started.runId });
       return;
@@ -211,6 +237,39 @@ export class ControlPlaneServer {
     if (request.method === "POST" && cancelMatch !== null) {
       const cancelled = this.#runtime.cancelRun(decodeURIComponent(cancelMatch[1] ?? ""));
       sendJson(response, cancelled ? 202 : 409, { cancelled });
+      return;
+    }
+    const resumeMatch = /^\/api\/runs\/([^/]+)\/resume$/.exec(url.pathname);
+    if (request.method === "POST" && resumeMatch !== null) {
+      const started = await this.#runtime.resumeRun(decodeURIComponent(resumeMatch[1] ?? ""));
+      sendJson(response, 202, { runId: started.runId });
+      return;
+    }
+    if (request.method === "GET" && url.pathname === "/api/waits") {
+      sendJson(response, 200, { waits: await this.#runtime.listWaits() });
+      return;
+    }
+    const waitResponseMatch = /^\/api\/waits\/([^/]+)\/respond$/.exec(url.pathname);
+    if (request.method === "POST" && waitResponseMatch !== null) {
+      const body = await readObjectBody(request);
+      if (body["value"] === undefined) throw new TypeError("value is required");
+      const source = body["source"] ?? "app";
+      if (source !== "app" && source !== "work_item") {
+        throw new TypeError("source must be app or work_item");
+      }
+      const result = await this.#runtime.submitHumanInput(
+        decodeURIComponent(waitResponseMatch[1] ?? ""),
+        {
+          source,
+          actorId: requiredString(body, "actorId"),
+          value: body["value"],
+          ...(typeof body["promote"] === "boolean" ? { promote: body["promote"] } : {}),
+        },
+      );
+      sendJson(response, result.accepted ? 202 : 403, {
+        accepted: result.accepted,
+        selected: result.selected,
+      });
       return;
     }
     if (request.method === "GET" && url.pathname === "/api/approvals") {
@@ -322,6 +381,26 @@ function requiredString(value: JsonObject, key: string): string {
     throw new TypeError(`${key} must be a non-empty string`);
   }
   return field;
+}
+
+function workItemFrom(value: unknown): WorkItem {
+  if (!isJsonObject(value)) throw new TypeError("workItem must be a JSON object");
+  const labels = value["labels"];
+  if (!Array.isArray(labels) || labels.some((label) => typeof label !== "string")) {
+    throw new TypeError("workItem.labels must be a string array");
+  }
+  const stringLabels = labels as string[];
+  return {
+    id: requiredString(value, "id"),
+    provider: requiredString(value, "provider"),
+    externalId: requiredString(value, "externalId"),
+    title: requiredString(value, "title"),
+    state: requiredString(value, "state"),
+    labels: stringLabels,
+    assignees: [],
+    relationships: [],
+    metadata: isJsonObject(value["metadata"]) ? value["metadata"] : {},
+  };
 }
 
 function requiredParameter(url: URL, key: string): string {

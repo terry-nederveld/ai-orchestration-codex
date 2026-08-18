@@ -17,6 +17,8 @@ import { EncryptedFileSecretProvider } from "../adapters/security/encrypted-file
 import { EnvironmentSecretProvider } from "../adapters/security/environment-secrets.js";
 import { InMemorySecretProvider } from "../adapters/security/in-memory-secrets.js";
 import { GitHubSourceControlProvider } from "../adapters/source-control/github-source-control.js";
+import { GitRepositoryCheckpointProvider } from "../adapters/source-control/git-checkpoints.js";
+import { FilesystemInstructionProvider } from "../adapters/context/filesystem-instructions.js";
 import { ListFilesTool, ReadFileTool, WriteFileTool } from "../adapters/tools/filesystem-tools.js";
 import { ProcessTool } from "../adapters/tools/process-tool.js";
 import { SearchTextTool } from "../adapters/tools/search-tool.js";
@@ -35,11 +37,20 @@ import {
 import { SlidingWindowContextManager } from "../application/agent/context-manager.js";
 import { NativeAgentRuntime } from "../application/agent/native-runtime.js";
 import { ApprovalManager, type ApprovalDecision } from "../application/approval-manager.js";
+import { ExecutionSpecificationService } from "../application/execution-specifications.js";
+import { HumanInputManager, WaitConditionManager } from "../application/wait-manager.js";
+import { InstructionResolver } from "../application/instruction-resolver.js";
+import { VersionedAssetCatalog } from "../application/versioned-assets.js";
+import {
+  WorkflowEvaluator,
+  type WorkflowEvaluationPlan,
+} from "../application/workflow-evaluator.js";
 import { InMemoryEventBus } from "../application/event-bus.js";
 import { HookRegistry } from "../application/hooks.js";
 import { Orchestrator, type OrchestrationResult } from "../application/orchestrator.js";
 import { PersistedEventBus } from "../application/persisted-event-bus.js";
 import { RuleBasedPermissionProvider } from "../application/policy-engine.js";
+import { RecurringTriggerService, type RecurringTriggerState } from "../application/recurrence.js";
 import { ProviderRegistry } from "../application/provider-registry.js";
 import {
   reconcileInterruptedRuns,
@@ -53,16 +64,20 @@ import {
   AgentStepHandler,
   ApprovalStepHandler,
   CommandStepHandler,
+  HumanInputStepHandler,
+  SubworkflowStepHandler,
   ToolStepHandler,
+  WaitStepHandler,
 } from "../application/workflows/builtin-handlers.js";
-import type { CompiledWorkflow } from "../application/workflows/compiler.js";
-import { WorkflowEngine } from "../application/workflows/engine.js";
+import { compileWorkflow, type CompiledWorkflow } from "../application/workflows/compiler.js";
+import { WorkflowEngine, WorkflowSuspendedError } from "../application/workflows/engine.js";
 import { WorkflowStepHandlerRegistry } from "../application/workflows/handler-registry.js";
 import { loadWorkflow } from "../application/workflows/loader.js";
 import type { DomainEvent } from "../domain/events.js";
-import type { JsonObject } from "../domain/json.js";
+import type { JsonObject, JsonValue } from "../domain/json.js";
 import type { AgentRun } from "../domain/runs.js";
-import type { WorkPage, WorkQuery } from "../domain/work.js";
+import type { WaitCondition } from "../domain/execution.js";
+import type { WorkItem, WorkPage, WorkQuery } from "../domain/work.js";
 import type { EventBus } from "../ports/event-bus.js";
 import type { ExtensionManifest, SkillMetadata } from "../ports/extensions.js";
 import type { Provider, AgentProvider, ModelProvider, WorkProvider } from "../ports/providers.js";
@@ -86,6 +101,7 @@ export interface StartRunRequest {
   externalId: string;
   workflowId: string;
   owner?: string;
+  variables?: JsonObject;
 }
 
 export interface ExtensionStatus {
@@ -103,6 +119,11 @@ export class FableRuntime {
   public readonly persistence: SqlitePersistenceProvider;
   public readonly events: EventBus;
   public readonly approvals: ApprovalManager;
+  public readonly waits: WaitConditionManager;
+  public readonly humanInputs: HumanInputManager;
+  public readonly assets: VersionedAssetCatalog;
+  public readonly specifications: ExecutionSpecificationService;
+  public readonly recurring: RecurringTriggerService;
   public readonly secrets: SecretProvider;
   public readonly skills = new FilesystemSkillProvider();
 
@@ -121,6 +142,7 @@ export class FableRuntime {
   readonly #orchestrator: Orchestrator;
   readonly #sourceControl: GitHubSourceControlProvider;
   #scheduler: WorkScheduler | undefined;
+  #recurringTimer: NodeJS.Timeout | undefined;
   #servicesStarted = false;
 
   private constructor(
@@ -129,6 +151,11 @@ export class FableRuntime {
     events: EventBus,
     secrets: SecretProvider,
     approvals: ApprovalManager,
+    waits: WaitConditionManager,
+    humanInputs: HumanInputManager,
+    assets: VersionedAssetCatalog,
+    specifications: ExecutionSpecificationService,
+    recurring: RecurringTriggerService,
     orchestrator: Orchestrator,
     sourceControl: GitHubSourceControlProvider,
     models: ProviderRegistry<ModelProvider>,
@@ -143,6 +170,11 @@ export class FableRuntime {
     this.events = events;
     this.secrets = secrets;
     this.approvals = approvals;
+    this.waits = waits;
+    this.humanInputs = humanInputs;
+    this.assets = assets;
+    this.specifications = specifications;
+    this.recurring = recurring;
     this.#orchestrator = orchestrator;
     this.#sourceControl = sourceControl;
     this.#models = models;
@@ -166,6 +198,11 @@ export class FableRuntime {
     const events = new PersistedEventBus(innerEvents, persistence.events);
     const secrets = buildSecrets(config, dataDirectory);
     const approvals = new ApprovalManager(persistence, events);
+    const waits = new WaitConditionManager(persistence, events);
+    const humanInputs = new HumanInputManager(waits);
+    const assets = new VersionedAssetCatalog(persistence);
+    const specifications = new ExecutionSpecificationService(persistence);
+    const recurring = new RecurringTriggerService(persistence);
     const runner = new NodeProcessRunner();
     const permissions = new RuleBasedPermissionProvider(
       config.value.permissions.map((rule) => ({
@@ -228,6 +265,37 @@ export class FableRuntime {
     handlers.register(new ToolStepHandler(tools, permissions));
     handlers.register(new ActionStepHandler(workflowActions));
     handlers.register(new ApprovalStepHandler(approvals));
+    handlers.register(new HumanInputStepHandler(humanInputs));
+    handlers.register(new WaitStepHandler(waits));
+    handlers.register(
+      new SubworkflowStepHandler(async (step, context) => {
+        const asset = await assets.get(step.workflow);
+        if (asset === undefined) {
+          throw new Error(
+            `Pinned subworkflow is unavailable: ${step.workflow.id}@${step.workflow.version}`,
+          );
+        }
+        const workflow = compileWorkflow(asset.value);
+        const result = await workflowEngine.execute({
+          runId: `${context.runId}:${context.stepId}`,
+          workflow,
+          ...(context.workItem === undefined ? {} : { workItem: context.workItem }),
+          ...(context.workspacePath === undefined ? {} : { workspacePath: context.workspacePath }),
+          variables: { ...context.variables, ...step.input },
+          signal: context.signal,
+        });
+        if (result.status === "WAITING") {
+          const conditionId = result.waitConditionIds?.[0];
+          if (conditionId === undefined)
+            throw new Error("Subworkflow suspended without a wait condition");
+          throw new WorkflowSuspendedError(conditionId, "subworkflow");
+        }
+        if (result.status !== "SUCCEEDED") {
+          throw new Error(`Subworkflow ${step.workflow.id} ${result.status.toLowerCase()}`);
+        }
+        return result.outputs;
+      }),
+    );
     const workflowEngine = new WorkflowEngine(
       handlers,
       events,
@@ -247,6 +315,10 @@ export class FableRuntime {
       persistence,
       events,
       hooks,
+      assets,
+      specifications,
+      new GitRepositoryCheckpointProvider(runner, persistence, workspaceRoot),
+      new InstructionResolver([new FilesystemInstructionProvider()]),
     );
     const result = new FableRuntime(
       config,
@@ -254,6 +326,11 @@ export class FableRuntime {
       events,
       secrets,
       approvals,
+      waits,
+      humanInputs,
+      assets,
+      specifications,
+      recurring,
       orchestrator,
       sourceControl,
       models,
@@ -266,6 +343,7 @@ export class FableRuntime {
     await result.#loadExtensions(workflowActions);
     await result.#loadMcp();
     await result.#loadWorkflows();
+    await result.#configureRecurring();
     result.#configureScheduler();
     return result;
   }
@@ -278,6 +356,32 @@ export class FableRuntime {
     const workflow = this.#workflows.get(id);
     if (workflow === undefined) throw new Error(`Unknown workflow: ${id}`);
     return workflow;
+  }
+
+  public async publishWorkflowDefinition(input: unknown) {
+    const workflow = compileWorkflow(input);
+    await this.assets.publish({
+      kind: "workflow",
+      id: workflow.definition.id,
+      version: workflow.definition.version,
+      value: JSON.parse(JSON.stringify(workflow.definition)) as JsonObject,
+    });
+    const current = this.#workflows.get(workflow.definition.id);
+    if (current === undefined || workflow.definition.version >= current.definition.version) {
+      this.#workflows.set(workflow.definition.id, workflow);
+    }
+    return structuredClone(workflow.definition);
+  }
+
+  public evaluateWorkflowDefinition(input: {
+    definition: unknown;
+    workItem: WorkItem;
+  }): Promise<WorkflowEvaluationPlan> {
+    const workflow = compileWorkflow(input.definition);
+    return new WorkflowEvaluator().evaluate({
+      workItem: input.workItem,
+      workflows: [workflow.definition],
+    });
   }
 
   public workflowDefinitions() {
@@ -319,6 +423,10 @@ export class FableRuntime {
     runId: string;
     promise: Promise<OrchestrationResult>;
   } {
+    const selectedWorkflow = this.workflow(request.workflowId);
+    if (selectedWorkflow.definition.lifecycle !== "ENABLED") {
+      throw new Error(`Workflow ${request.workflowId} is ${selectedWorkflow.definition.lifecycle}`);
+    }
     const runId = randomUUID();
     const controller = new AbortController();
     const promise = this.#orchestrator
@@ -326,8 +434,9 @@ export class FableRuntime {
         runId,
         workProviderId: request.workProviderId,
         externalId: request.externalId,
-        workflow: this.workflow(request.workflowId),
+        workflow: selectedWorkflow,
         owner: request.owner ?? `fable-${process.pid}`,
+        ...(request.variables === undefined ? {} : { variables: request.variables }),
         ...(this.#config.value.workspaceRoot === undefined
           ? {}
           : {
@@ -370,6 +479,66 @@ export class FableRuntime {
     return this.approvals.resolve(id, decision);
   }
 
+  public listWaits(): Promise<WaitCondition[]> {
+    return this.waits.list();
+  }
+
+  public async submitHumanInput(
+    conditionId: string,
+    input: {
+      source: "app" | "work_item";
+      actorId: string;
+      value: JsonValue;
+      promote?: boolean;
+    },
+  ) {
+    const response = await this.humanInputs.respond(conditionId, input);
+    if (response.selected && response.condition !== undefined) {
+      const resumed = await this.resumeRun(response.condition.runId);
+      void resumed.promise.catch(() => undefined);
+    }
+    return response;
+  }
+
+  public async resumeRun(runId: string): Promise<{
+    runId: string;
+    promise: Promise<OrchestrationResult>;
+  }> {
+    if (this.#active.has(runId)) throw new Error(`Run is already active: ${runId}`);
+    const run = await this.getRun(runId);
+    if (
+      run?.workflowVersion === undefined ||
+      run.workflowDigest === undefined ||
+      run.workflowId.length === 0
+    ) {
+      throw new Error(`Run ${runId} has no pinned workflow identity`);
+    }
+    const stored = await this.assets.get({
+      kind: "workflow",
+      id: run.workflowId,
+      version: run.workflowVersion,
+      digest: run.workflowDigest,
+    });
+    if (stored === undefined) throw new Error(`Pinned workflow is unavailable for run ${runId}`);
+    const workflow = compileWorkflow(stored.value);
+    const controller = new AbortController();
+    const promise = this.#orchestrator
+      .resume({
+        runId,
+        workflow,
+        owner: `fable-resume-${process.pid}`,
+        ...(this.#config.value.workspaceRoot === undefined
+          ? {}
+          : {
+              workspaceBasePath: resolveConfigPath(this.#config, this.#config.value.workspaceRoot),
+            }),
+        signal: controller.signal,
+      })
+      .finally(() => this.#active.delete(runId));
+    this.#active.set(runId, { controller, promise });
+    return { runId, promise };
+  }
+
   public schedulerStatus(): SchedulerStatus {
     return (
       this.#scheduler?.status() ?? {
@@ -380,11 +549,43 @@ export class FableRuntime {
     );
   }
 
+  public recurringStatus(): Promise<RecurringTriggerState[]> {
+    return this.recurring.list();
+  }
+
+  public async runRecurringOnce(now = new Date()): Promise<number> {
+    const due = await this.recurring.due(now);
+    for (const trigger of due) {
+      const started = this.startRun({
+        workProviderId: trigger.definition.workProviderId,
+        externalId: trigger.definition.externalId,
+        workflowId: trigger.definition.workflowId,
+        variables: trigger.definition.variables,
+        owner: `fable-recurring-${trigger.id}`,
+      });
+      await this.recurring.acknowledge(trigger.id, now);
+      await this.events.publish({
+        id: randomUUID(),
+        type: "recurring.dispatched",
+        occurredAt: now.toISOString(),
+        source: "recurring-trigger",
+        runId: started.runId,
+        payload: { triggerId: trigger.id, workflowId: trigger.workflowId },
+      });
+    }
+    return due.length;
+  }
+
   public async startServices(): Promise<void> {
     if (this.#servicesStarted) return;
     this.#servicesStarted = true;
     await reconcileInterruptedRuns(this.persistence, this.events);
     await this.approvals.reconcileInterrupted();
+    await this.runRecurringOnce();
+    if (this.#config.value.recurring.length > 0) {
+      this.#recurringTimer = setInterval(() => void this.runRecurringOnce(), 30_000);
+      this.#recurringTimer.unref();
+    }
     if (this.#config.value.scheduler.enabled) await this.#scheduler?.start();
   }
 
@@ -401,6 +602,7 @@ export class FableRuntime {
   }
 
   public async close(): Promise<void> {
+    if (this.#recurringTimer !== undefined) clearInterval(this.#recurringTimer);
     for (const active of this.#active.values())
       active.controller.abort(new Error("Runtime closing"));
     await this.#scheduler?.stop();
@@ -463,7 +665,43 @@ export class FableRuntime {
       if (this.#workflows.has(workflow.definition.id)) {
         throw new Error(`Duplicate workflow ID: ${workflow.definition.id}`);
       }
+      const published = await this.assets.publish({
+        kind: "workflow",
+        id: workflow.definition.id,
+        version: workflow.definition.version,
+        value: JSON.parse(JSON.stringify(workflow.definition)) as JsonObject,
+      });
+      if (published.digest !== workflow.reference.digest) {
+        throw new Error(`Workflow digest mismatch while publishing ${workflow.definition.id}`);
+      }
       this.#workflows.set(workflow.definition.id, workflow);
+    }
+    for (const asset of await this.assets.list("workflow")) {
+      const workflow = compileWorkflow(asset.value);
+      if (workflow.reference.digest !== asset.digest) {
+        throw new Error(`Stored workflow digest mismatch for ${asset.id}@${asset.version}`);
+      }
+      const current = this.#workflows.get(asset.id);
+      if (current === undefined || workflow.definition.version > current.definition.version) {
+        this.#workflows.set(asset.id, workflow);
+      }
+    }
+  }
+
+  async #configureRecurring(): Promise<void> {
+    for (const definition of this.#config.value.recurring) {
+      this.#work.require(definition.workProvider);
+      this.workflow(definition.workflow);
+      await this.recurring.register({
+        id: definition.id,
+        workProviderId: definition.workProvider,
+        externalId: definition.externalId,
+        workflowId: definition.workflow,
+        everyMs: definition.everyMs,
+        startAt: definition.startAt,
+        enabled: definition.enabled,
+        variables: definition.variables,
+      });
     }
   }
 
@@ -481,6 +719,8 @@ export class FableRuntime {
         id: source.id,
         workProviderId: source.workProvider,
         workflowId: source.workflow,
+        policy: source.policy,
+        ...(source.wipLimit === undefined ? {} : { wipLimit: source.wipLimit }),
         query: {
           ...(source.query.project === undefined ? {} : { project: source.query.project }),
           ...(source.query.states === undefined ? {} : { states: source.query.states }),

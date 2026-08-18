@@ -8,12 +8,15 @@ import type { WorkProvider } from "../ports/providers.js";
 import { EventFactory } from "./events.js";
 import type { OrchestrationResult } from "./orchestrator.js";
 import type { ProviderRegistry } from "./provider-registry.js";
+import { LaneSelector, type LaneConsumptionPolicy } from "./lanes.js";
 
 export interface SchedulerSource {
   id: string;
   workProviderId: string;
   workflowId: string;
   query: WorkQuery;
+  policy?: LaneConsumptionPolicy;
+  wipLimit?: number;
 }
 
 export interface SchedulerOptions {
@@ -45,7 +48,7 @@ interface DispatchRecord extends JsonObject {
   workItemId: string;
   externalId: string;
   runId: string;
-  status: "running" | "retry_wait" | "completed" | "exhausted";
+  status: "running" | "waiting" | "retry_wait" | "completed" | "exhausted";
   attempts: number;
   updatedAt: string;
   nextAttemptAt?: string;
@@ -146,6 +149,7 @@ export class WorkScheduler {
 
   async #pollSource(source: SchedulerSource): Promise<void> {
     const provider = this.providers.require(source.workProviderId);
+    const items: WorkItem[] = [];
     let cursor: string | undefined;
     do {
       const page = await provider.discover({
@@ -153,12 +157,40 @@ export class WorkScheduler {
         limit: Math.min(source.query.limit ?? 50, 100),
         ...(cursor === undefined ? {} : { cursor }),
       });
-      for (const item of page.items) {
-        if (this.#active.size >= this.options.maxConcurrentRuns) return;
-        await this.#consider(source, item);
-      }
+      items.push(...page.items);
       cursor = page.nextCursor;
-    } while (cursor !== undefined && this.#active.size < this.options.maxConcurrentRuns);
+    } while (cursor !== undefined);
+    const dispatches = (await this.persistence.entities.list<DispatchRecord>("scheduler_dispatch"))
+      .map(({ value }) => value)
+      .filter(({ sourceId }) => sourceId === source.id);
+    const active = await Promise.all(
+      dispatches
+        .filter(({ status }) => status === "running" || status === "waiting")
+        .map(async (dispatch) => {
+          const run = await this.persistence.entities.get<JsonObject>("run", dispatch.runId);
+          return {
+            workItemId: dispatch.workItemId,
+            status: (run?.value["status"] as AgentRun["status"] | undefined) ?? "WAITING",
+          };
+        }),
+    );
+    const selected = new LaneSelector().select({
+      lane: {
+        id: source.id,
+        workflowId: source.workflowId,
+        policy: source.policy ?? "ranked_parallel",
+        wipLimit: source.wipLimit ?? this.options.maxConcurrentRuns,
+        requiredCapabilities: [],
+        profileIds: ["runtime"],
+      },
+      items,
+      active,
+      profileCapabilities: { runtime: [] },
+    });
+    for (const item of selected) {
+      if (this.#active.size >= this.options.maxConcurrentRuns) return;
+      await this.#consider(source, item);
+    }
   }
 
   async #consider(source: SchedulerSource, item: WorkItem): Promise<void> {
@@ -198,13 +230,11 @@ export class WorkScheduler {
       }),
     );
     const completion = started.promise
-      .then((result) =>
-        this.#completeDispatch(record, result.run.status === "COMPLETED", result.error),
-      )
+      .then((result) => this.#completeDispatch(record, result.run.status, result.error))
       .catch((error: unknown) =>
         this.#completeDispatch(
           record,
-          false,
+          "FAILED",
           error instanceof Error ? error.message : String(error),
         ),
       )
@@ -214,7 +244,7 @@ export class WorkScheduler {
 
   async #completeDispatch(
     dispatch: DispatchRecord,
-    succeeded: boolean,
+    runStatus: AgentRun["status"],
     error?: string,
   ): Promise<void> {
     const stored = await this.persistence.entities.get<DispatchRecord>(
@@ -222,28 +252,43 @@ export class WorkScheduler {
       dispatch.id,
     );
     if (stored === undefined) return;
-    const exhausted = !succeeded && dispatch.attempts >= this.options.maxAttempts;
+    const succeeded = runStatus === "COMPLETED";
+    const waiting = ["WAITING", "WAITING_FOR_HUMAN", "BLOCKED"].includes(runStatus);
+    const exhausted = !succeeded && !waiting && dispatch.attempts >= this.options.maxAttempts;
     const nextAttemptAt =
-      succeeded || exhausted
+      succeeded || waiting || exhausted
         ? undefined
         : new Date(Date.now() + this.#retryDelay(dispatch.attempts)).toISOString();
     const value: DispatchRecord = {
       ...stored.value,
-      status: succeeded ? "completed" : exhausted ? "exhausted" : "retry_wait",
+      status: succeeded
+        ? "completed"
+        : waiting
+          ? "waiting"
+          : exhausted
+            ? "exhausted"
+            : "retry_wait",
       updatedAt: new Date().toISOString(),
       ...(nextAttemptAt === undefined ? {} : { nextAttemptAt }),
       ...(error === undefined ? {} : { error }),
     };
     await this.persistence.entities.put("scheduler_dispatch", dispatch.id, value, stored.version);
     await this.eventBus.publish(
-      this.#events.create(succeeded ? "work.dispatch.completed" : "work.dispatch.failed", {
-        workItemId: dispatch.workItemId,
-        runId: dispatch.runId,
-        attempt: dispatch.attempts,
-        exhausted,
-        ...(error === undefined ? {} : { error }),
-        ...(nextAttemptAt === undefined ? {} : { nextAttemptAt }),
-      }),
+      this.#events.create(
+        succeeded
+          ? "work.dispatch.completed"
+          : waiting
+            ? "work.dispatch.waiting"
+            : "work.dispatch.failed",
+        {
+          workItemId: dispatch.workItemId,
+          runId: dispatch.runId,
+          attempt: dispatch.attempts,
+          exhausted,
+          ...(error === undefined ? {} : { error }),
+          ...(nextAttemptAt === undefined ? {} : { nextAttemptAt }),
+        },
+      ),
     );
   }
 
@@ -311,7 +356,7 @@ export async function reconcileInterruptedRuns(
   let recovered = 0;
   for (const row of rows) {
     const run = row.value as unknown as AgentRun;
-    if (terminalStatuses.has(run.status)) continue;
+    if (terminalStatuses.has(run.status) || resumableStatuses.has(run.status)) continue;
     const now = new Date().toISOString();
     const value = {
       ...run,
@@ -338,6 +383,7 @@ export async function reconcileInterruptedRuns(
 }
 
 const terminalStatuses = new Set(["COMPLETED", "FAILED", "BLOCKED", "CANCELLED"]);
+const resumableStatuses = new Set(["WAITING", "WAITING_FOR_HUMAN"]);
 
 function thisEvent(runId: string, type: string, payload: JsonObject) {
   return new EventFactory({ source: "recovery", runId }).create(type, payload);

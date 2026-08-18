@@ -33,6 +33,7 @@ describe("ControlPlaneServer", () => {
         workflows: [],
         extensions: { paths: [], grants: {} },
         mcp: [],
+        recurring: [],
         sourceControl: { githubSecret: "github.token" },
         concurrency: { workflowSteps: 4 },
         scheduler: {

@@ -160,6 +160,10 @@ export const fableConfigSchema = z.object({
             id: z.string().regex(/^[a-z][a-z0-9_-]*$/),
             workProvider: z.string().min(1),
             workflow: z.string().min(1),
+            policy: z
+              .enum(["strict_serial", "skip_blocked", "ranked_parallel"])
+              .default("ranked_parallel"),
+            wipLimit: z.number().int().positive().max(100).optional(),
             query: z
               .object({
                 project: z.string().optional(),
@@ -182,6 +186,20 @@ export const fableConfigSchema = z.object({
       maxRetryBackoffMs: 300_000,
       sources: [],
     }),
+  recurring: z
+    .array(
+      z.object({
+        id: z.string().regex(/^[a-z][a-z0-9_-]*$/),
+        workProvider: z.string().min(1),
+        externalId: z.string().min(1),
+        workflow: z.string().min(1),
+        everyMs: z.number().int().min(1_000),
+        startAt: z.string().datetime(),
+        enabled: z.boolean().default(true),
+        variables: z.record(z.union([z.string(), z.number(), z.boolean(), z.null()])).default({}),
+      }),
+    )
+    .default([]),
 });
 
 export type FableConfig = z.infer<typeof fableConfigSchema>;
