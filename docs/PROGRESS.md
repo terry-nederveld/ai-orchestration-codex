@@ -4,7 +4,7 @@ Updated: 2026-08-18
 
 ## Current objective
 
-Orchestrator Phase 2 is implemented and in final release validation for v0.2.0.
+Orchestrator Phase 2 is complete and validated for v0.2.0.
 
 ## Completed milestones
 
@@ -25,7 +25,7 @@ Orchestrator Phase 2 is implemented and in final release validation for v0.2.0.
 - Git checkpoint recovery is proven against a bare remote after deletion of the original workspace.
 - Evaluate is covered by a repository-spy test proving zero writes.
 - Federated runtime identity, grouping, security, run display, and workflow designer behavior are covered by UI tests.
-- ADR validation and core/desktop builds pass in the working tree. Clean-checkout and Rust host validation are recorded in `PHASE2-FINAL-REPORT.md`.
+- A copied-object clean checkout passed lockfile installation, all quality gates, core/UI/sidecar builds, 13 ADR validations, and locked Rust host compilation. Full evidence is recorded in `PHASE2-FINAL-REPORT.md`.
 
 ## Known constraints
 
