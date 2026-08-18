@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 import type { IconName } from "../components/Icon.js";
+import { filterSnapshot } from "./federation.js";
 import { Icon } from "../components/Icon.js";
 import { Button } from "../components/ui.js";
 import { Approvals } from "../pages/Approvals.js";
@@ -27,19 +28,24 @@ export function App() {
   const fable = useFable();
   const [view, setView] = useState("dashboard");
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const selectedRunId = view.startsWith("run:") ? view.slice(4) : undefined;
-  const currentView = selectedRunId === undefined ? view : "runs";
-  const pendingApprovals = fable.snapshot.approvals.filter(
-    (item) => item.status === "pending",
-  ).length;
-  const activeRuns = fable.snapshot.runs.filter((run) => activeStatuses.has(run.status)).length;
+  const [runtimeFilter, setRuntimeFilter] = useState("all");
+  const snapshot = useMemo(
+    () => filterSnapshot(fable.snapshot, fable.connections, runtimeFilter),
+    [fable.connections, fable.snapshot, runtimeFilter],
+  );
+  const selectedRunKey = view.startsWith("run:") ? view.slice(4) : undefined;
+  const currentView = selectedRunKey === undefined ? view : "runs";
+  const pendingApprovals =
+    snapshot.approvals.filter((item) => item.status === "pending").length +
+    snapshot.waits.filter((item) => item.status === "waiting").length;
+  const activeRuns = snapshot.runs.filter((run) => activeStatuses.has(run.status)).length;
   const workSources = useMemo(
-    () => fable.snapshot.providers.filter((item) => item.descriptor.kind === "work"),
-    [fable.snapshot.providers],
+    () => snapshot.providers.filter((item) => item.descriptor.kind === "work"),
+    [snapshot.providers],
   );
   const agentProviders = useMemo(
-    () => fable.snapshot.providers.filter((item) => item.descriptor.kind === "agent"),
-    [fable.snapshot.providers],
+    () => snapshot.providers.filter((item) => item.descriptor.kind === "agent"),
+    [snapshot.providers],
   );
 
   function navigate(next: string): void {
@@ -91,8 +97,13 @@ export function App() {
           <div className="service-health">
             <span className={fable.error === undefined ? "online" : "offline"} />
             <div>
-              <strong>{fable.error === undefined ? "Service online" : "Service offline"}</strong>
-              <small>{fable.connection?.url.replace(/^https?:\/\//, "") ?? "not connected"}</small>
+              <strong>
+                {fable.runtimes.filter(({ error }) => error === undefined).length}/
+                {fable.runtimes.length || 1} runtimes online
+              </strong>
+              <small>
+                {fable.connections.map(({ name }) => name).join(" · ") || "not connected"}
+              </small>
             </div>
           </div>
         </div>
@@ -113,6 +124,27 @@ export function App() {
           </button>
           <strong>Fable</strong>
           <span className={fable.error === undefined ? "online-dot" : "offline-dot"} />
+        </div>
+        <div className="runtime-filter">
+          <label>
+            <span>Workspace view</span>
+            <select
+              value={runtimeFilter}
+              onChange={(event) => setRuntimeFilter(event.target.value)}
+            >
+              <option value="all">All runtimes</option>
+              {[...new Set(fable.connections.map(({ group }) => group))].map((group) => (
+                <option key={group} value={`group:${group}`}>
+                  {group}
+                </option>
+              ))}
+              {fable.connections.map((connection) => (
+                <option key={connection.id} value={`runtime:${connection.id}`}>
+                  {connection.name}
+                </option>
+              ))}
+            </select>
+          </label>
         </div>
         {fable.error === undefined ? null : (
           <div className="connection-banner">
@@ -148,62 +180,64 @@ export function App() {
       case "dashboard":
         return (
           <Dashboard
-            runs={fable.snapshot.runs}
-            providers={fable.snapshot.providers}
-            approvals={fable.snapshot.approvals}
-            scheduler={fable.snapshot.scheduler}
+            runs={snapshot.runs}
+            providers={snapshot.providers}
+            approvals={snapshot.approvals}
+            scheduler={snapshot.scheduler}
             onNavigate={navigate}
           />
         );
       case "work":
         return (
           <Work
-            {...(fable.client === undefined ? {} : { client: fable.client })}
-            providers={fable.snapshot.providers}
-            workflows={fable.snapshot.workflows}
-            onRunStarted={(id) => navigate(`run:${id}`)}
+            clients={fable.clients}
+            providers={snapshot.providers}
+            workflows={snapshot.workflows}
+            onRunStarted={(runtimeId, id) => navigate(`run:${runtimeId}|${id}`)}
           />
         );
       case "runs":
         return (
           <Runs
-            runs={fable.snapshot.runs}
-            {...(fable.client === undefined ? {} : { client: fable.client })}
-            {...(selectedRunId === undefined ? {} : { selectedId: selectedRunId })}
-            onSelect={(id) => navigate(id === undefined ? "runs" : `run:${id}`)}
+            runs={snapshot.runs}
+            clients={fable.clients}
+            {...(selectedRunKey === undefined ? {} : { selectedKey: selectedRunKey })}
+            onSelect={(key) => navigate(key === undefined ? "runs" : `run:${key}`)}
             onRefresh={fable.refresh}
           />
         );
       case "approvals":
         return (
           <Approvals
-            approvals={fable.snapshot.approvals}
-            {...(fable.client === undefined ? {} : { client: fable.client })}
+            approvals={snapshot.approvals}
+            waits={snapshot.waits}
+            clients={fable.clients}
             onRefresh={fable.refresh}
           />
         );
       case "providers":
-        return <Providers providers={fable.snapshot.providers} />;
+        return <Providers providers={snapshot.providers} />;
       case "workflows":
-        return <Workflows workflows={fable.snapshot.workflows} />;
-      case "projects":
-        return <Projects workflows={fable.snapshot.workflows} workSources={workSources} />;
-      case "agents":
-        return <Agents workflows={fable.snapshot.workflows} agents={agentProviders} />;
-      case "settings":
         return (
-          <Settings
-            {...(fable.connection === undefined ? {} : { connection: fable.connection })}
-            onReconnect={fable.reconnect}
+          <Workflows
+            workflows={snapshot.workflows}
+            clients={fable.clients}
+            onRefresh={fable.refresh}
           />
         );
+      case "projects":
+        return <Projects workflows={snapshot.workflows} workSources={workSources} />;
+      case "agents":
+        return <Agents workflows={snapshot.workflows} agents={agentProviders} />;
+      case "settings":
+        return <Settings connections={fable.connections} onReconnect={fable.reconnect} />;
       default:
         return (
           <Dashboard
-            runs={fable.snapshot.runs}
-            providers={fable.snapshot.providers}
-            approvals={fable.snapshot.approvals}
-            scheduler={fable.snapshot.scheduler}
+            runs={snapshot.runs}
+            providers={snapshot.providers}
+            approvals={snapshot.approvals}
+            scheduler={snapshot.scheduler}
             onNavigate={navigate}
           />
         );
@@ -215,7 +249,9 @@ const activeStatuses = new Set([
   "QUEUED",
   "PREPARING",
   "RUNNING",
+  "WAITING",
   "WAITING_FOR_TOOL",
   "WAITING_FOR_SUBAGENT",
+  "WAITING_FOR_HUMAN",
   "VERIFYING",
 ]);

@@ -11,6 +11,8 @@ export type ProviderKind =
   | "notification";
 
 export interface ProviderStatus {
+  runtimeId?: string;
+  runtimeName?: string;
   descriptor: {
     id: string;
     displayName: string;
@@ -32,6 +34,7 @@ export type RunStatus =
   | "QUEUED"
   | "PREPARING"
   | "RUNNING"
+  | "WAITING"
   | "WAITING_FOR_TOOL"
   | "WAITING_FOR_SUBAGENT"
   | "WAITING_FOR_HUMAN"
@@ -42,12 +45,25 @@ export type RunStatus =
   | "CANCELLED";
 
 export interface AgentRun {
+  runtimeId?: string;
+  runtimeName?: string;
+  executionLocation?: "local" | "remote";
   id: string;
   workItemId: string;
   workflowId: string;
+  workflowVersion?: number;
+  workflowDigest?: string;
+  workflowSnapshotId?: string;
   goal: string;
   status: RunStatus;
   currentStepId?: string;
+  graphPosition?: { activeNodeIds: string[]; completedNodeIds: string[]; checkpoint: number };
+  domainState?: string;
+  externalState?: string;
+  executionSpecRevision?: number;
+  repositoryBranch?: string;
+  checkpointSha?: string;
+  releaseState?: string;
   workspacePath?: string;
   providerId?: string;
   model?: string;
@@ -74,16 +90,34 @@ export interface WorkItem {
   type?: string;
   priority?: string;
   labels: string[];
-  repository?: { id: string; name?: string; owner?: string };
+  repository?: {
+    id: string;
+    cloneUrl?: string;
+    defaultBranch?: string;
+    localPath?: string;
+    name?: string;
+    owner?: string;
+  };
+  metadata?: Record<string, unknown>;
   url?: string;
   updatedAt?: string;
 }
 
 export interface WorkflowDefinition {
-  schemaVersion: 1;
+  runtimeId?: string;
+  runtimeName?: string;
+  schemaVersion: 1 | 2;
   id: string;
+  version?: number;
+  lifecycle?: "DRAFT" | "ENABLED" | "DISABLED";
   name: string;
   description?: string;
+  trigger?: { states: string[] };
+  eligibility?: { includeLabels: string[]; excludeLabels: string[] };
+  domainStates?: string[];
+  assets?: Array<{ kind: string; id: string; version: number; digest: string }>;
+  requirements?: { capabilities: string[]; providers: string[]; tools: string[] };
+  configuration?: Record<string, unknown>;
   workspace: { strategy: string; retainOnFailure: boolean };
   agents: Record<
     string,
@@ -92,12 +126,39 @@ export interface WorkflowDefinition {
   steps: Array<{
     id: string;
     name?: string;
-    type: "agent" | "command" | "tool" | "action" | "approval";
+    type:
+      "agent" | "command" | "tool" | "action" | "approval" | "human_input" | "wait" | "subworkflow";
     dependsOn: string[];
+    [key: string]: unknown;
   }>;
 }
 
+export interface WorkflowEvaluationPlan {
+  sideEffects: false;
+  routing: { status: string; candidates: Array<Record<string, unknown>> };
+  repositories: Array<Record<string, unknown>>;
+  repositoryConflicts: string[];
+  instructions: Array<Record<string, unknown>>;
+  context: Array<Record<string, unknown>>;
+  guards: Array<{ stepId: string; expression: string; determinable: boolean }>;
+  stateMappings?: unknown;
+  gates?: unknown;
+  profiles?: unknown;
+  permissions?: unknown;
+  repositoryRules?: unknown;
+  contextPolicy?: unknown;
+  scheduling?: unknown;
+  experiments?: unknown;
+  pinnedAssets: unknown[];
+  profileRequirements: Record<string, unknown>;
+  expectedSideEffects: string[];
+  determinablePath: string[];
+  blockers: string[];
+}
+
 export interface ApprovalRecord {
+  runtimeId?: string;
+  runtimeName?: string;
   id: string;
   runId: string;
   title: string;
@@ -118,9 +179,28 @@ export interface DomainEvent {
 }
 
 export interface ControlPlaneConnection {
+  id: string;
+  name: string;
+  group: string;
+  location: "local" | "remote";
   url: string;
   token: string;
   configPath?: string;
+}
+
+export interface WaitCondition {
+  runtimeId?: string;
+  runtimeName?: string;
+  id: string;
+  runId: string;
+  nodeId: string;
+  type: string;
+  status: "waiting" | "satisfied" | "expired" | "cancelled";
+  predicate: Record<string, unknown>;
+  signals: Array<Record<string, unknown>>;
+  createdAt: string;
+  updatedAt: string;
+  expiresAt?: string;
 }
 
 export interface SchedulerStatus {
@@ -137,5 +217,13 @@ export interface Snapshot {
   runs: AgentRun[];
   workflows: WorkflowDefinition[];
   approvals: ApprovalRecord[];
+  waits: WaitCondition[];
   scheduler: SchedulerStatus;
+}
+
+export interface RuntimeSnapshot {
+  connection: ControlPlaneConnection;
+  snapshot: Snapshot;
+  loading: boolean;
+  error?: string;
 }

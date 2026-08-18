@@ -7,7 +7,9 @@ import type {
   Snapshot,
   SchedulerStatus,
   WorkItem,
+  WaitCondition,
   WorkflowDefinition,
+  WorkflowEvaluationPlan,
 } from "./types.js";
 
 interface Envelope {
@@ -18,11 +20,12 @@ export class FableClient {
   public constructor(private readonly connection: ControlPlaneConnection) {}
 
   public async snapshot(signal?: AbortSignal): Promise<Snapshot> {
-    const [providers, runs, workflows, approvals, scheduler] = await Promise.all([
+    const [providers, runs, workflows, approvals, waits, scheduler] = await Promise.all([
       this.request<{ providers: ProviderStatus[] }>("/api/providers", withSignal(signal)),
       this.request<{ runs: AgentRun[] }>("/api/runs", withSignal(signal)),
       this.request<{ workflows: WorkflowDefinition[] }>("/api/workflows", withSignal(signal)),
       this.request<{ approvals: ApprovalRecord[] }>("/api/approvals", withSignal(signal)),
+      this.request<{ waits: WaitCondition[] }>("/api/waits", withSignal(signal)),
       this.request<{ scheduler: SchedulerStatus }>("/api/scheduler", withSignal(signal)),
     ]);
     return {
@@ -30,6 +33,7 @@ export class FableClient {
       runs: runs.runs,
       workflows: workflows.workflows,
       approvals: approvals.approvals,
+      waits: waits.waits,
       scheduler: scheduler.scheduler,
     };
   }
@@ -62,6 +66,25 @@ export class FableClient {
     return result.runId;
   }
 
+  public async publishWorkflow(definition: WorkflowDefinition): Promise<WorkflowDefinition> {
+    const result = await this.request<{ workflow: WorkflowDefinition }>("/api/workflows", {
+      method: "POST",
+      body: JSON.stringify({ definition }),
+    });
+    return result.workflow;
+  }
+
+  public async evaluateWorkflow(
+    definition: WorkflowDefinition,
+    workItem: WorkItem,
+  ): Promise<WorkflowEvaluationPlan> {
+    const result = await this.request<{ evaluation: WorkflowEvaluationPlan }>(
+      "/api/workflows/evaluate",
+      { method: "POST", body: JSON.stringify({ definition, workItem }) },
+    );
+    return result.evaluation;
+  }
+
   public async cancelRun(runId: string): Promise<boolean> {
     const result = await this.request<{ cancelled: boolean }>(
       `/api/runs/${encodeURIComponent(runId)}/cancel`,
@@ -76,6 +99,16 @@ export class FableClient {
       { method: "POST", body: JSON.stringify({ decision }) },
     );
     return result.resolved;
+  }
+
+  public async respondToWait(
+    id: string,
+    input: { actorId: string; value: unknown; promote?: boolean },
+  ): Promise<{ accepted: boolean; selected: boolean }> {
+    return this.request(`/api/waits/${encodeURIComponent(id)}/respond`, {
+      method: "POST",
+      body: JSON.stringify({ source: "app", ...input }),
+    });
   }
 
   public async subscribe(

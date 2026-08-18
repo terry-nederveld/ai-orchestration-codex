@@ -1,6 +1,6 @@
 import { useState } from "react";
 import type { ControlPlaneConnection } from "../app/types.js";
-import { saveConnection } from "../app/connection.js";
+import { removeConnection, saveConnection } from "../app/connection.js";
 import {
   disableNotifications,
   enableNotifications,
@@ -9,20 +9,40 @@ import {
 import { Button, PageHeader, Panel } from "../components/ui.js";
 
 export function Settings({
-  connection,
+  connections,
   onReconnect,
 }: {
-  connection?: ControlPlaneConnection;
+  connections: ControlPlaneConnection[];
   onReconnect: () => void;
 }) {
-  const [url, setUrl] = useState(connection?.url ?? "http://127.0.0.1:3210");
-  const [token, setToken] = useState(connection?.token ?? "");
+  const [name, setName] = useState("");
+  const [group, setGroup] = useState("Remote");
+  const [url, setUrl] = useState("http://127.0.0.1:3210");
+  const [token, setToken] = useState("");
+  const [connectionError, setConnectionError] = useState<string>();
   const [notifications, setNotifications] = useState(notificationsEnabled());
   const [notificationMessage, setNotificationMessage] = useState<string>();
+
   function save(): void {
-    saveConnection({ url: url.replace(/\/$/, ""), token });
-    onReconnect();
+    try {
+      const normalizedUrl = url.replace(/\/$/, "");
+      saveConnection({
+        id: connectionId(name || normalizedUrl),
+        name: name || normalizedUrl,
+        group: group || "Remote",
+        location: "remote",
+        url: normalizedUrl,
+        token,
+      });
+      setName("");
+      setToken("");
+      setConnectionError(undefined);
+      onReconnect();
+    } catch (cause) {
+      setConnectionError(cause instanceof Error ? cause.message : String(cause));
+    }
   }
+
   async function toggleNotifications(): Promise<void> {
     if (notifications) {
       disableNotifications();
@@ -38,19 +58,66 @@ export function Settings({
         : "Notification permission was not granted or this is the browser build.",
     );
   }
+
   return (
     <>
       <PageHeader
         eyebrow="Application"
         title="Settings"
-        description="Inspect the local service boundary or connect this web build to a headless Fable process."
+        description="Connect one local control plane and any number of remote runtimes without sharing execution authority."
       />
       <div className="settings-grid">
         <Panel
-          title="Control plane"
-          subtitle="The desktop app creates an ephemeral bearer token on every launch."
+          title="Connected runtimes"
+          subtitle={`${connections.length} independent control planes`}
+        >
+          <div className="runtime-list">
+            {connections.map((connection) => (
+              <article key={connection.id}>
+                <div>
+                  <strong>{connection.name}</strong>
+                  <small>
+                    {connection.group} · {connection.location} · {connection.url}
+                  </small>
+                </div>
+                {connection.location === "local" ? (
+                  <span className="runtime-chip">managed</span>
+                ) : (
+                  <Button
+                    variant="quiet"
+                    icon="x"
+                    aria-label={`Remove ${connection.name}`}
+                    onClick={() => {
+                      removeConnection(connection.id);
+                      onReconnect();
+                    }}
+                  />
+                )}
+              </article>
+            ))}
+          </div>
+        </Panel>
+        <Panel
+          title="Add remote runtime"
+          subtitle="Each runtime keeps its own workflows, runs, approvals, and credentials."
         >
           <div className="stacked-form">
+            <label>
+              <span>Name</span>
+              <input
+                value={name}
+                onChange={(event) => setName(event.target.value)}
+                placeholder="Staging"
+              />
+            </label>
+            <label>
+              <span>Group</span>
+              <input
+                value={group}
+                onChange={(event) => setGroup(event.target.value)}
+                placeholder="Remote"
+              />
+            </label>
             <label>
               <span>Service URL</span>
               <input value={url} onChange={(event) => setUrl(event.target.value)} />
@@ -64,8 +131,17 @@ export function Settings({
                 onChange={(event) => setToken(event.target.value)}
               />
             </label>
-            <Button onClick={save}>Save and reconnect</Button>
+            <Button disabled={url.length === 0 || token.length === 0} onClick={save}>
+              Add and reconnect
+            </Button>
           </div>
+          {connectionError === undefined ? null : (
+            <div className="inline-error">{connectionError}</div>
+          )}
+          <p className="panel-footnote">
+            Browser connections persist locally. Tauri keeps remote tokens only for the current
+            application session.
+          </p>
         </Panel>
         <Panel
           title="Native notifications"
@@ -85,32 +161,37 @@ export function Settings({
           )}
         </Panel>
         <Panel
-          title="Configuration"
-          subtitle="Secrets remain outside the renderer and SQLite database."
+          title="Security boundary"
+          subtitle="Local and remote runtimes never share control-plane authority."
         >
           <dl className="detail-list">
             <div>
-              <dt>Config file</dt>
-              <dd className="mono">{connection?.configPath ?? "External service"}</dd>
-            </div>
-            <div>
               <dt>Transport</dt>
-              <dd>Loopback HTTP + SSE</dd>
+              <dd>Loopback HTTP + SSE per runtime</dd>
             </div>
             <div>
               <dt>Authentication</dt>
-              <dd>Ephemeral bearer token</dd>
+              <dd>Independent bearer token per connection</dd>
+            </div>
+            <div>
+              <dt>Local secrets</dt>
+              <dd>Outside renderer and SQLite run records</dd>
             </div>
             <div>
               <dt>Secret fallback</dt>
               <dd>AES-256-GCM encrypted vault</dd>
             </div>
           </dl>
-          <p className="panel-footnote">
-            Set FABLE_CONFIG_PATH before launching the desktop app to use a specific configuration.
-          </p>
         </Panel>
       </div>
     </>
   );
+}
+
+function connectionId(value: string): string {
+  const normalized = value
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-|-$/g, "");
+  return normalized.length > 0 ? normalized : `runtime-${Date.now()}`;
 }

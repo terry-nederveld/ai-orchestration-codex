@@ -17,7 +17,9 @@ export function Dashboard({
 }) {
   const active = runs.filter((run) => activeStatuses.has(run.status));
   const failures = runs.filter((run) => run.status === "FAILED");
-  const blocked = runs.filter((run) => ["BLOCKED", "WAITING_FOR_HUMAN"].includes(run.status));
+  const blocked = runs.filter((run) =>
+    ["BLOCKED", "WAITING", "WAITING_FOR_HUMAN"].includes(run.status),
+  );
   const available = providers.filter((provider) => provider.availability.available).length;
   const inputTokens = runs.reduce((total, run) => total + run.usage.inputTokens, 0);
   const outputTokens = runs.reduce((total, run) => total + run.usage.outputTokens, 0);
@@ -94,14 +96,14 @@ export function Dashboard({
               {runs.slice(0, 6).map((run) => (
                 <button
                   className="run-row"
-                  key={run.id}
-                  onClick={() => onNavigate(`run:${run.id}`)}
+                  key={`${run.runtimeId ?? "default"}:${run.id}`}
+                  onClick={() => onNavigate(`run:${run.runtimeId ?? "default"}|${run.id}`)}
                 >
                   <span className="run-glyph">{run.workItemId.slice(0, 2).toUpperCase()}</span>
                   <span className="run-copy">
                     <strong>{run.goal}</strong>
                     <small>
-                      {run.workItemId} · {run.workflowId}
+                      {run.runtimeName ?? "Runtime"} · {run.workItemId} · {run.workflowId}
                     </small>
                   </span>
                   <StatusPill status={run.status} />
@@ -138,4 +140,13 @@ export function Dashboard({
   );
 }
 
-const activeStatuses = new Set(["QUEUED", "PREPARING", "RUNNING", "WAITING_FOR_TOOL", "VERIFYING"]);
+const activeStatuses = new Set([
+  "QUEUED",
+  "PREPARING",
+  "RUNNING",
+  "WAITING",
+  "WAITING_FOR_TOOL",
+  "WAITING_FOR_SUBAGENT",
+  "WAITING_FOR_HUMAN",
+  "VERIFYING",
+]);

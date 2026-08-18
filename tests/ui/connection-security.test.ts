@@ -24,4 +24,11 @@ describe("desktop control-plane credentials", () => {
 
     expect(localStorage.getItem(storageKey)).toContain("developer-token");
   });
+
+  it("rejects bearer tokens over non-loopback plaintext transport", () => {
+    expect(() =>
+      saveConnection({ url: "http://remote.example.test:3210", token: "exposed-token" }),
+    ).toThrow(/HTTPS|loopback/);
+    expect(localStorage.getItem(storageKey)).toBeNull();
+  });
 });

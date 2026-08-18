@@ -5,15 +5,15 @@ import type { ProviderStatus, WorkItem, WorkflowDefinition } from "../app/types.
 import { Button, EmptyState, PageHeader, Panel, StatusPill } from "../components/ui.js";
 
 export function Work({
-  client,
+  clients,
   providers,
   workflows,
   onRunStarted,
 }: {
-  client?: FableClient;
+  clients: ReadonlyMap<string, FableClient>;
   providers: ProviderStatus[];
   workflows: WorkflowDefinition[];
-  onRunStarted: (id: string) => void;
+  onRunStarted: (runtimeId: string, id: string) => void;
 }) {
   const sources = useMemo(
     () => providers.filter((item) => item.descriptor.kind === "work"),
@@ -26,16 +26,20 @@ export function Work({
   const [error, setError] = useState<string>();
 
   useEffect(() => {
-    if (providerId.length === 0 && sources[0] !== undefined)
-      setProviderId(sources[0].descriptor.id);
-    if (workflowId.length === 0 && workflows[0] !== undefined) setWorkflowId(workflows[0].id);
+    if (providerId.length === 0 && sources[0] !== undefined) setProviderId(sourceKey(sources[0]));
+    const sourceRuntime = selectedSource(sources, providerId)?.runtimeId;
+    const eligibleWorkflows = workflows.filter((workflow) => workflow.runtimeId === sourceRuntime);
+    if (workflowId.length === 0 && eligibleWorkflows[0] !== undefined)
+      setWorkflowId(workflowKey(eligibleWorkflows[0]));
   }, [providerId, sources, workflowId, workflows]);
 
   async function discover(): Promise<void> {
-    if (client === undefined || providerId.length === 0) return;
+    const source = selectedSource(sources, providerId);
+    const client = source?.runtimeId === undefined ? undefined : clients.get(source.runtimeId);
+    if (client === undefined || source === undefined) return;
     setLoading(true);
     try {
-      setItems(await client.work(providerId));
+      setItems(await client.work(source.descriptor.id));
       setError(undefined);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
@@ -45,15 +49,24 @@ export function Work({
   }
 
   async function launch(item: WorkItem): Promise<void> {
-    if (client === undefined || workflowId.length === 0) return;
+    const source = selectedSource(sources, providerId);
+    const runtimeId = source?.runtimeId;
+    const client = runtimeId === undefined ? undefined : clients.get(runtimeId);
+    const workflow = workflows.find((value) => workflowKey(value) === workflowId);
+    if (
+      client === undefined ||
+      runtimeId === undefined ||
+      source === undefined ||
+      workflow === undefined
+    )
+      return;
     try {
-      onRunStarted(
-        await client.startRun({
-          workProviderId: providerId,
-          externalId: item.externalId,
-          workflowId,
-        }),
-      );
+      const runId = await client.startRun({
+        workProviderId: source.descriptor.id,
+        externalId: item.externalId,
+        workflowId: workflow.id,
+      });
+      onRunStarted(runtimeId, runId);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
     }
@@ -85,8 +98,8 @@ export function Work({
             <select value={providerId} onChange={(event) => setProviderId(event.target.value)}>
               <option value="">Choose a source</option>
               {sources.map((source) => (
-                <option key={source.descriptor.id} value={source.descriptor.id}>
-                  {source.descriptor.displayName}
+                <option key={sourceKey(source)} value={sourceKey(source)}>
+                  {source.runtimeName ?? "Runtime"} · {source.descriptor.displayName}
                 </option>
               ))}
             </select>
@@ -95,11 +108,16 @@ export function Work({
             <span>Workflow</span>
             <select value={workflowId} onChange={(event) => setWorkflowId(event.target.value)}>
               <option value="">Choose a workflow</option>
-              {workflows.map((workflow) => (
-                <option key={workflow.id} value={workflow.id}>
-                  {workflow.name}
-                </option>
-              ))}
+              {workflows
+                .filter(
+                  (workflow) =>
+                    workflow.runtimeId === selectedSource(sources, providerId)?.runtimeId,
+                )
+                .map((workflow) => (
+                  <option key={workflowKey(workflow)} value={workflowKey(workflow)}>
+                    {workflow.name} · v{workflow.version ?? 1}
+                  </option>
+                ))}
             </select>
           </label>
         </div>
@@ -153,4 +171,16 @@ export function Work({
       </Panel>
     </>
   );
+}
+
+function sourceKey(source: ProviderStatus): string {
+  return `${source.runtimeId ?? "default"}|${source.descriptor.id}`;
+}
+
+function workflowKey(workflow: WorkflowDefinition): string {
+  return `${workflow.runtimeId ?? "default"}|${workflow.id}|${workflow.version ?? 1}`;
+}
+
+function selectedSource(sources: ProviderStatus[], key: string): ProviderStatus | undefined {
+  return sources.find((source) => sourceKey(source) === key);
 }
