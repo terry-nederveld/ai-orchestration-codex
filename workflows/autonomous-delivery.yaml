@@ -1,0 +1,183 @@
+schemaVersion: 2
+id: autonomous-delivery
+version: 1
+lifecycle: ENABLED
+name: Autonomous Delivery
+description: Ranked, gated, checkpointed delivery from agent-ready work to pull request and work-item completion.
+trigger:
+  states: [Ready]
+eligibility:
+  includeLabels: [agent-ready]
+  excludeLabels: [blocked]
+workspace:
+  strategy: git-worktree
+  retainOnFailure: true
+requirements:
+  capabilities: [tool_use, structured_output]
+  providers: []
+  tools: [git]
+configuration:
+  template:
+    category: delivery
+    outputs: [implementation, tests, review, pull_request]
+  lane:
+    policy: ranked_parallel
+    preserveNativeRank: true
+  repositoryResolution:
+    precedence: [explicit, project_mapping, agent_discovery]
+    manyToMany: true
+  context:
+    upwardDepth: 1
+    downwardDepth: 1
+    directRelationships: [blocked_by, depends_on]
+    attachments:
+      enabled: false
+  instructionDiscovery:
+    files: [AGENTS.md, AGENT.md, CLAUDE.md, .github/copilot-instructions.md]
+  gates:
+    ready: definition-of-ready@1
+    done: definition-of-done@1
+    remediationRequiresReevaluation: true
+  profiles:
+    implementation: delivery-builder@1
+    review: independent-reviewer@1
+  stateMappings:
+    waiting: Needs Input
+    completed: Done
+    failed: Agent Failed
+  checkpoint:
+    strategy: remote_git_branch
+    beforeLongWait: true
+  releaseLifecycle: [implemented, pull_request_opened, merged, released, deployed, verified]
+variables:
+  commitMessage: "feat(delivery): complete requested work"
+budgets:
+  maxIterations: 12
+  maxWallClockMs: 14400000
+  maxInputTokens: 200000
+agents:
+  implementer:
+    requiredCapabilities: [tool_use, structured_output]
+    instructions: Implement only from the pinned execution specification and preserve existing behavior.
+  reviewer:
+    requiredCapabilities: [tool_use]
+    instructions: Review independently; do not declare remediations successful without rerunning checks.
+steps:
+  - id: resolve
+    name: Resolve repositories, instructions, and context
+    type: action
+    action: delivery.resolve
+    input: {}
+  - id: specification
+    name: Create execution specification
+    type: action
+    action: delivery.execution_specification
+    input: {}
+    dependsOn: [resolve]
+  - id: dor_evaluate
+    name: Evaluate Definition of Ready
+    type: action
+    action: delivery.gate.evaluate_ready
+    input: {}
+    dependsOn: [specification]
+  - id: dor_remediate
+    name: Remediate readiness
+    type: action
+    action: delivery.gate.remediate_ready
+    input: {}
+    dependsOn: [dor_evaluate]
+    when: outputs.dor_evaluate.passed == false
+  - id: dor_reevaluate
+    name: Independently reevaluate readiness
+    type: action
+    action: delivery.gate.evaluate_ready
+    input:
+      reevaluation: true
+    dependsOn: [dor_evaluate, dor_remediate]
+  - id: implement
+    type: agent
+    agent: implementer
+    goal: Implement the pinned execution specification and report structured completion evidence.
+    dependsOn: [dor_reevaluate]
+    when: outputs.dor_reevaluate.passed == true
+  - id: ambiguity
+    name: Resolve genuine implementation ambiguity
+    type: human_input
+    inputType: single_choice
+    title: Select the compatible behavior
+    description: Two contract-compatible behaviors remain. Select the one to preserve in the implementation.
+    channel: both
+    choices: [Preserve legacy behavior, Adopt strict behavior]
+    dependsOn: [implement]
+  - id: authoritative_refresh
+    name: Refresh authoritative context and revise specification
+    type: action
+    action: delivery.refresh_specification
+    input: {}
+    dependsOn: [ambiguity]
+  - id: complete_implementation
+    type: agent
+    agent: implementer
+    goal: Continue from the durable branch using the revised execution specification and selected behavior.
+    dependsOn: [authoritative_refresh]
+  - id: tests
+    type: action
+    action: delivery.tests
+    input: {}
+    dependsOn: [complete_implementation]
+  - id: review
+    type: agent
+    agent: reviewer
+    goal: Independently review the implementation, tests, security, and acceptance evidence.
+    dependsOn: [complete_implementation]
+  - id: dod_evaluate
+    name: Evaluate Definition of Done
+    type: action
+    action: delivery.gate.evaluate_done
+    input: {}
+    dependsOn: [tests, review]
+  - id: dod_remediate
+    name: Remediate completion gaps
+    type: action
+    action: delivery.gate.remediate_done
+    input: {}
+    dependsOn: [dod_evaluate]
+    when: outputs.dod_evaluate.passed == false
+  - id: dod_reevaluate
+    name: Independently reevaluate completion
+    type: action
+    action: delivery.gate.evaluate_done
+    input:
+      reevaluation: true
+    dependsOn: [dod_evaluate, dod_remediate]
+  - id: commit
+    type: action
+    action: source_control.commit
+    input:
+      message: ${{ variables.commitMessage }}
+    dependsOn: [dod_reevaluate]
+    when: outputs.dod_reevaluate.passed == true
+  - id: push
+    type: action
+    action: source_control.push
+    input:
+      remote: origin
+    dependsOn: [commit]
+  - id: pull_request
+    type: action
+    action: source_control.pull_request
+    input:
+      repository: ${{ work.repository.id }}
+      title: ${{ work.title }}
+      body: ${{ work.description }}
+      draft: true
+    dependsOn: [push]
+  - id: update_work
+    type: action
+    action: delivery.update_work_item
+    input: {}
+    dependsOn: [pull_request]
+transitions:
+  success: Done
+  failure: Agent Failed
+  cancelled: Ready

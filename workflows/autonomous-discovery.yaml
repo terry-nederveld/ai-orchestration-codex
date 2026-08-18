@@ -1,0 +1,144 @@
+schemaVersion: 2
+id: autonomous-discovery
+version: 1
+lifecycle: ENABLED
+name: Autonomous Discovery and Experimentation
+description: Evidence-led discovery from a broad outcome through bounded experiments, judgment, PRD, and optional Delivery handoff.
+trigger:
+  states: [Outcome, Discovery Ready]
+eligibility:
+  excludeLabels: [blocked]
+workspace:
+  strategy: temporary
+  retainOnFailure: true
+requirements:
+  capabilities: [structured_output]
+  providers: []
+  tools: []
+configuration:
+  template:
+    category: discovery
+    outputs: [learning, judgment_package, prd, related_work]
+  evidence:
+    permittedSources: [work_item, relationships, configured_tools]
+  context:
+    upwardDepth: 1
+    downwardDepth: 1
+    directRelationships: [blocked_by, depends_on, supported_by, derived_from]
+    attachments:
+      enabled: false
+  experiment:
+    candidateCount: 3
+    generationStrategy: diverse
+    practicalPrototypes: true
+    survivorCount: 1
+    maxIterations: 2
+    maxWallClockMs: 7200000
+    maxEvaluations: 18
+  rubric:
+    id: discovery-outcome
+    version: 1
+    criteria:
+      - id: customer_impact
+        weight: 0.5
+        hardKillBelow: 30
+      - id: feasibility
+        weight: 0.3
+      - id: evidence_quality
+        weight: 0.2
+  approval:
+    beforeStoryCreation: true
+    signals: [app, work_item_comment, work_item_state]
+  stopModes: [prd, stories, delivery_handoff]
+  repositoryResolution:
+    precedence: [explicit, project_mapping, agent_discovery]
+  stateMappings:
+    waiting: Needs Judgment
+    completed: Discovery Complete
+variables:
+  stopAfter: delivery_handoff
+budgets:
+  maxIterations: 10
+  maxWallClockMs: 10800000
+  maxInputTokens: 250000
+agents:
+  investigator:
+    requiredCapabilities: [structured_output]
+    instructions: Preserve evidence provenance and distinguish observation from inference.
+  synthesizer:
+    requiredCapabilities: [structured_output]
+    instructions: Use only the pinned rubric and declared kill/advance criteria.
+steps:
+  - id: evidence
+    type: agent
+    agent: investigator
+    goal: Investigate permitted evidence for the stated outcome and return provenance-linked observations.
+  - id: pain_points
+    type: action
+    action: discovery.identify_pain_points
+    input: {}
+    dependsOn: [evidence]
+  - id: hypotheses
+    type: agent
+    agent: synthesizer
+    goal: Form falsifiable hypotheses from the evidence-backed pain points.
+    dependsOn: [pain_points]
+  - id: predeclare
+    name: Pin rubric and kill/advance criteria
+    type: action
+    action: discovery.predeclare_criteria
+    input: {}
+    dependsOn: [hypotheses]
+  - id: candidates
+    type: action
+    action: discovery.generate_candidates
+    input:
+      count: 3
+    dependsOn: [predeclare]
+  - id: experiment
+    type: action
+    action: discovery.run_experiment
+    input: {}
+    dependsOn: [candidates]
+  - id: capture_learning
+    type: action
+    action: discovery.capture_learning
+    input: {}
+    dependsOn: [experiment]
+  - id: judgment
+    type: human_input
+    inputType: single_choice
+    title: Judge the surviving discovery candidate
+    description: Review the pinned criteria, prototypes, evidence, recommendation, and risks.
+    channel: both
+    choices: [Kill, Advance, Iterate, Need More Evidence]
+    dependsOn: [capture_learning]
+  - id: prd
+    type: action
+    action: discovery.create_prd
+    input: {}
+    dependsOn: [judgment]
+    when: outputs.judgment.humanInput.value == 'Advance'
+  - id: approval
+    type: human_input
+    inputType: approval
+    title: Approve downstream story creation
+    description: Approve creating related work from the reviewed PRD.
+    channel: both
+    dependsOn: [prd]
+    when: variables.stopAfter != 'prd'
+  - id: stories
+    type: action
+    action: discovery.create_related_work
+    input: {}
+    dependsOn: [approval]
+    when: outputs.approval.humanInput.value == true
+  - id: delivery_handoff
+    type: action
+    action: discovery.handoff_delivery
+    input: {}
+    dependsOn: [stories]
+    when: variables.stopAfter == 'delivery_handoff'
+transitions:
+  success: Discovery Complete
+  failure: Discovery Blocked
